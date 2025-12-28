@@ -18,7 +18,7 @@
 #include "search.h"
 #include "common.h"
 #include "database.h"
-#include "platform.h"
+#include "platform.h" 
 
 #define SEARCH_RESULT_HEIGHT 50
 
@@ -62,6 +62,8 @@ static void glfw_error_callback(int error, const char* description)
 
 int main(void)
 {
+	drag_drop_init();
+
 	if (curl_global_init(CURL_GLOBAL_ALL))
 		return EXIT_FAILURE;
 
@@ -187,11 +189,18 @@ int main(void)
 		// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
 		// - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
 		// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+
 		glfwPollEvents();
 		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 		{
 			ImGui_ImplGlfw_Sleep(10);
 			continue;
+		}
+
+		if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
+		{
+			drag_drop_start("C:\\Users\\Maks\\Programming\\splice\\splice\\build\\Debug\\OS_TRIN_808_atlspin_E.mp3");
+			io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
 		}
 
 		// Start the Dear ImGui frame
@@ -281,6 +290,8 @@ int main(void)
 	ma_context_uninit(&context);
 
 	curl_global_cleanup();
+
+	drag_drop_uninit();
 
 	return EXIT_SUCCESS;
 }

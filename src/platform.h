@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "drag_drop.h"
+
 int is_same_file(char* path1, char* path2);
 char* alloc_absolute_path(char* path);
 char* alloc_file_name(char* path);

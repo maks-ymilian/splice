@@ -9,6 +9,7 @@ add_executable(splice
 	"src/unscrambler.c"
 	"src/database.c"
 	"src/platform.c"
+	"src/drag_drop.c"
 )
 
 option(USE_DEBUG "" OFF)
