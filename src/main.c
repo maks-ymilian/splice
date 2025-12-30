@@ -31,11 +31,15 @@ static char* error_message;
 static bool error_popup;
 
 static ma_device device;
+static ma_device_config device_config;
+static ma_data_converter data_converter;
 static ma_decoder decoder;
 
 static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-    ma_decoder_read_pcm_frames(&decoder, pOutput, frameCount, NULL);
+	ma_uint64 frames_read;
+    ma_decoder_read_pcm_frames(&decoder, pOutput, frameCount, &frames_read);
+	ma_data_converter_process_pcm_frames(&data_converter, pOutput, &frames_read, pOutput, &frames_read);
 
 	(void)pDevice;
 	(void)pInput;
@@ -44,6 +48,7 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput,
 static bool play_result(int index)
 {
 	ma_device_stop(&device);
+	ma_data_converter_uninit(&data_converter, NULL);
 	ma_decoder_uninit(&decoder);
 
 	struct buffer audio;
@@ -51,6 +56,20 @@ static bool play_result(int index)
 		return false;
 
 	if (ma_decoder_init_memory(audio.data, audio.length, NULL, &decoder) != MA_SUCCESS)
+		return false;
+
+	ma_format format;
+	ma_uint32 channels;
+	ma_uint32 sample_rate;
+	if (ma_decoder_get_data_format(&decoder, &format, &channels, &sample_rate, NULL, 0))
+		return false;
+
+	ma_data_converter_config data_converter_config = ma_data_converter_config_init(
+		format, device_config.playback.format,
+		channels, device_config.playback.channels,
+		sample_rate, device_config.sampleRate);
+
+	if (ma_data_converter_init(&data_converter_config, NULL, &data_converter))
 		return false;
 
 	if (ma_device_start(&device) != MA_SUCCESS)
@@ -140,13 +159,13 @@ int main(void)
 	if (ma_context_init(NULL, 0, NULL, &context) != MA_SUCCESS)
 		return EXIT_FAILURE;
 
-	ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
-	deviceConfig.playback.format   = ma_format_f32;
-	deviceConfig.playback.channels = 2;
-	deviceConfig.sampleRate        = 48000;
-	deviceConfig.dataCallback      = data_callback;
-	deviceConfig.pUserData         = NULL;
-	if (ma_device_init(&context, &deviceConfig, &device) != MA_SUCCESS)
+	device_config = ma_device_config_init(ma_device_type_playback);
+	device_config.playback.format   = ma_format_f32;
+	device_config.playback.channels = 2;
+	device_config.sampleRate        = 48000;
+	device_config.dataCallback      = data_callback;
+	device_config.pUserData         = NULL;
+	if (ma_device_init(&context, &device_config, &device) != MA_SUCCESS)
 		return EXIT_FAILURE;
 
 	glfwSetErrorCallback(glfw_error_callback);
@@ -395,6 +414,7 @@ int main(void)
 	glfwDestroyWindow(window);
 	glfwTerminate();
 
+	ma_data_converter_uninit(&data_converter, NULL);
 	ma_decoder_uninit(&decoder);
 	ma_device_uninit(&device);
 	ma_context_uninit(&context);
