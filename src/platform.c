@@ -159,7 +159,7 @@ bool check_file_access(char* path, bool read, bool write)
 	return _access(path, (read ? 4 : 0) | (write ? 2 : 0)) == 0;
 }
 
-int is_regular_file(char* path)
+bool is_regular_file(char* path, bool* out_result)
 {
 	HANDLE file = INVALID_HANDLE_VALUE;
 
@@ -178,7 +178,10 @@ int is_regular_file(char* path)
 
 	if (fileInfo.dwFileAttributes != FILE_ATTRIBUTE_NORMAL &&
 		fileInfo.dwFileAttributes != FILE_ATTRIBUTE_ARCHIVE)
-		return false;
+	{
+		*out_result = false;
+		return true;
+	}
 
 	FILE_STANDARD_INFO fileStandardInfo;
 	if (!GetFileInformationByHandleEx(file, FileStandardInfo, &fileStandardInfo, sizeof(fileStandardInfo)))
@@ -186,12 +189,12 @@ int is_regular_file(char* path)
 
 	CloseHandle(file);
 
-	return !fileStandardInfo.Directory;
+	*out_result = !fileStandardInfo.Directory;
+	return true;
 
 error:
 	if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
-
-	return -1;
+	return false;
 }
 
 void print_stack_trace(void)

@@ -261,10 +261,14 @@ bool database_get_file_path(struct database* db, char* file, bool* out_exists, c
 		if (!is_regular_file(name, &is_file) || !is_file) goto error;
 
 		if (out_exists) *out_exists = true;
+
 		if (file_on_disk)
-			*file_on_disk = name;
-		else
-			free(name);
+		{
+			*file_on_disk = alloc_absolute_path(name);
+			if (!*file_on_disk) goto error;
+		}
+
+		free(name);
 		return true;
 	}
 

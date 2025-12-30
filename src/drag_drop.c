@@ -197,7 +197,7 @@ void drag_drop_start(char* file_path)
     if (!initialized)
         return;
 
-	printf("drag drop\n");
+	printf("drag dropping %s\n", file_path);
 
     struct file_object* obj = calloc(1, sizeof(struct file_object));
 	obj->IDataObject_iface.lpVtbl = &Data_Vtbl;
