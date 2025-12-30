@@ -106,26 +106,36 @@ cleanup:
 	return return_value;
 }
 
-static bool convert_name(char* file, char** out_file)
+static bool convert_to_file_name(char* dir, char* file, char** out_file)
 {
 	if (!file)
 		return false;
 
+	char* new_dir = alloc_absolute_path(alloc_dir_name(dir));
 	char* new_file = alloc_file_name_no_extension(file);
-	if (!new_file)
+	if (!new_file || !new_dir)
 		goto cleanup;
+
+	int new_dir_length = strlen(new_dir);
 
 	char extension[] = ".mp3";
-	new_file = realloc(new_file, strlen(new_file) + COUNTOF(extension));
-	if (!new_file)
+	new_dir = realloc(new_dir, new_dir_length + 1 + strlen(new_file) + COUNTOF(extension));
+	if (!new_dir)
 		goto cleanup;
 
-	strcat(new_file, extension);
-	*out_file = new_file;
+	if (new_dir[new_dir_length - 1] != '/' &&
+		new_dir[new_dir_length - 1] != '\\')
+		strcat(new_dir, "/");
+
+	strcat(new_dir, new_file);
+	strcat(new_dir, extension);
+	*out_file = new_dir;
+	free(new_file);
 	return true;
 
 cleanup:
 	free(new_file);
+	free(new_dir);
 	return false;
 }
 
@@ -133,41 +143,25 @@ static bool cache_add(struct database* db, char* file, struct buffer buffer)
 {
 	if (!db || !file || !buffer.data || buffer.length < 0) return false;
 
-	char* name;
-	if (!convert_name(file, &name)) goto error;
-
 	bool found;
-	if (!map_add(db->cached_files, name, &buffer, &found) || found) goto error;
+	if (!map_add(db->cached_files, file, &buffer, &found) || found) return false;
 
-	free(name);
 	return true;
-
-error:
-	free(name);
-	return false;
 }
 
 static bool cache_get(struct database* db, char* file, struct buffer* buffer)
 {
 	if (!db || !file || !buffer) return false;
 
-	char* name;
-	if (!convert_name(file, &name)) goto error;
-
 	bool cached;
 	struct buffer cached_buffer;
-	if (!map_get(db->cached_files, name, &cached_buffer, &cached)) goto error;
+	if (!map_get(db->cached_files, file, &cached_buffer, &cached)) return false;
 	if (cached)
 		*buffer = cached_buffer;
 	else
 		*buffer = (struct buffer){.data = NULL, .length = 0};
 
-	free(name);
 	return true;
-
-error:
-	free(name);
-	return false;
 }
 
 struct database* database_init(char* files_path)
@@ -179,10 +173,22 @@ struct database* database_init(char* files_path)
 	if (!db)
 		return NULL;
 
-	db->files_path = realloc_string(files_path);
-	db->cached_files = map_init(sizeof(struct buffer));
+	char* dir_name = alloc_dir_name(files_path);
+	if (!dir_name) goto error;
 
+	db->files_path = alloc_absolute_path(dir_name);
+	db->cached_files = map_init(sizeof(struct buffer));
+	if (!db->files_path || !db->cached_files) goto error;
+
+	free(dir_name);
 	return db;
+
+error:
+	free(dir_name);
+	map_uninit(db->cached_files);
+	free(db->files_path);
+	free(db);
+	return NULL;
 }
 
 void database_uninit(struct database* db)
@@ -224,7 +230,7 @@ bool database_get(struct database* db, char* file, char* url, struct buffer* buf
 			printf("retrieving %s from file\n", file);
 
 			char* name;
-			if (!convert_name(file, &name)) return false;
+			if (!convert_to_file_name(db->files_path, file, &name)) return false;
 			if (!read_file(name, buffer))
 			{
 				free(name);
@@ -253,7 +259,7 @@ bool database_get_file_path(struct database* db, char* file, bool* out_exists, c
 	if (!db || !file || (!out_exists && !file_on_disk)) return false;
 
 	char* name = NULL;
-	if (!convert_name(file, &name)) goto error;
+	if (!convert_to_file_name(db->files_path, file, &name)) goto error;
 
 	if (check_file_access(name, false, false)) // if file exists
 	{
@@ -293,7 +299,7 @@ bool database_get_and_save(struct database* db, char* file, char* url)
 	if (!database_get(db, file, url, &buffer)) return false;
 
 	char* name = NULL;
-	if (!convert_name(file, &name)) return false;
+	if (!convert_to_file_name(db->files_path, file, &name)) return false;
 	if (!write_file(name, buffer))
 	{
 		free(name);

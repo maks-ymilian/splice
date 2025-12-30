@@ -35,8 +35,7 @@ static ma_decoder decoder;
 
 static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-	ma_uint64 frames_read;
-    ma_decoder_read_pcm_frames(&decoder, pOutput, frameCount, &frames_read);
+	ma_decoder_read_pcm_frames(&decoder, pOutput, frameCount, NULL);
 
 	(void)pDevice;
 	(void)pInput;
@@ -172,7 +171,7 @@ int main(void)
 
 	// Create window with graphics context
 	float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
-	GLFWwindow* window = glfwCreateWindow((int)(600 * main_scale), (int)(900 * main_scale), "Samples", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow((int)(480 * main_scale), (int)(720 * main_scale), "Samples", NULL, NULL);
 	if (window == NULL)
 		return 1;
 	glfwMakeContextCurrent(window);
