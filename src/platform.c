@@ -273,6 +273,7 @@ char* alloc_file_name_no_extension(char* path)
 	if (!out) goto error;
 	memcpy(out, baseName, numChars);
 	out[numChars] = '\0';
+	free(copy);
 	return out;
 
 error:
@@ -305,16 +306,17 @@ bool check_file_access(char* path, bool read, bool write)
 	return access(path, !read && !write ? F_OK : permissions) == 0;
 }
 
-int is_regular_file(char* path)
+bool is_regular_file(char* path, bool* out_result)
 {
+	if (!path)
+		return false;
+
 	struct stat status;
 	if (stat(path, &status) != 0)
-		goto error;
+		return false;
 
-	return S_ISREG(status.st_mode);
-
-error:
-	return -1;
+	*out_result = S_ISREG(status.st_mode);
+	return true;
 }
 
 void print_stack_trace(void)

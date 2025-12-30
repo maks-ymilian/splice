@@ -3,4 +3,6 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
-bool unscramble(uint8_t* data, int length, uint8_t** out_data, int* out_length);
+#include "common.h"
+
+bool unscramble(struct buffer in, struct buffer* out);

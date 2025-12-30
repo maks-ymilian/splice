@@ -240,6 +240,7 @@ void drag_drop_uninit(void)
 
 void drag_drop_start(char* file_path)
 {
+	(void)file_path;
     printf("drag drop not implemented\n");
 }
 

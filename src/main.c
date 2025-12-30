@@ -19,11 +19,16 @@
 #include "common.h"
 #include "database.h"
 #include "platform.h" 
+#include "drag_drop.h" 
 
-#define SEARCH_RESULT_HEIGHT 50
+#define DRAW_DEBUG 0
+
+static struct database* db;
 
 static char search_text[100];
 static struct search_results results;
+static char* error_message;
+static bool error_popup;
 
 static ma_device device;
 static ma_decoder decoder;
@@ -38,21 +43,83 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput,
 
 static bool play_result(int index)
 {
-	struct buffer file;
-	if (!database_get(results.ptr[index].name, results.ptr[index].sound_url, &file))
-		return false;
-
 	ma_device_stop(&device);
 	ma_decoder_uninit(&decoder);
 
-	if (ma_decoder_init_memory(file.data, file.length, NULL, &decoder) != MA_SUCCESS)
+	struct buffer audio;
+	if (!database_get(db, results.ptr[index].name, results.ptr[index].audio_url, &audio))
 		return false;
 
-	printf("playing sound\n");
+	if (ma_decoder_init_memory(audio.data, audio.length, NULL, &decoder) != MA_SUCCESS)
+		return false;
+
 	if (ma_device_start(&device) != MA_SUCCESS)
 		return false;
 
 	return true;
+}
+
+static void open_error_popup(char* text)
+{
+	printf("error: %s\n", text);
+
+	error_message = text;
+	error_popup = true;
+}
+
+static ImU32 color(int r, int g, int b, int a)
+{
+	return
+		((ImU32)a << 24) |
+		((ImU32)b << 16) |
+		((ImU32)g << 8) |
+		((ImU32)r << 0);
+}
+
+static void debug_rect(float x, float y, float width, float height, ImU32 color)
+{
+	if (!DRAW_DEBUG)
+		return;
+
+	x += igGetCursorScreenPos().x;
+	y += igGetCursorScreenPos().y;
+	ImDrawList_AddRect(
+		igGetForegroundDrawList_ViewportPtr(igGetWindowViewport()),
+		(ImVec2_c){x, y}, (ImVec2_c){x + width, y + height},
+		color, 0, ImDrawFlags_None, 0);
+}
+
+static void debug_rect_vector(ImVec2_c pos, ImVec2_c size, ImU32 color)
+{
+	debug_rect(pos.x, pos.y, size.x, size.y, color);
+}
+
+static void center_cursor(float object_size_x, float object_size_y, float area_size_x, float area_size_y)
+{
+	igSetCursorPosX(igGetCursorPosX() + (area_size_x - object_size_x) / 2);
+	igSetCursorPosY(igGetCursorPosY() + (area_size_y - object_size_y) / 2);
+}
+
+static void text_box_truncated(char* text, float width, float height)
+{
+	debug_rect(0, 0, width, height, color(255, 255, 255, 128));
+
+	ImVec2_c text_size = igCalcTextSize(text, NULL, false, false);
+	center_cursor(0, text_size.y, 0, height);
+
+	debug_rect(0, 0, width > text_size.x ? text_size.x : width, text_size.y, color(255, 255, 255, 128));
+	igTextAligned(0, width, text);
+}
+
+static void text_box(char* text, float width, float height)
+{
+	debug_rect(0, 0, width, height, color(255, 255, 255, 128));
+
+	ImVec2_c text_size = igCalcTextSize(text, NULL, false, false);
+	center_cursor(text_size.x, text_size.y, width, height);
+
+	debug_rect(0, 0, text_size.x, text_size.y, color(255, 255, 255, 128));
+	igText(text);
 }
 
 static void glfw_error_callback(int error, const char* description)
@@ -62,6 +129,8 @@ static void glfw_error_callback(int error, const char* description)
 
 int main(void)
 {
+	db = database_init(".");
+
 	drag_drop_init();
 
 	if (curl_global_init(CURL_GLOBAL_ALL))
@@ -71,26 +140,7 @@ int main(void)
 	if (ma_context_init(NULL, 0, NULL, &context) != MA_SUCCESS)
 		return EXIT_FAILURE;
 
-	ma_device_info* pPlaybackDeviceInfos;
-	ma_uint32 playbackDeviceCount;
-	ma_device_info* pCaptureDeviceInfos;
-	ma_uint32 captureDeviceCount;
-	ma_result result = ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
-	if (result != MA_SUCCESS)
-		return EXIT_FAILURE;
-
-	printf("Playback Devices\n");
-	for (ma_uint32 iDevice = 0; iDevice < playbackDeviceCount; ++iDevice)
-		printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
-
-	printf("\n");
-
-	printf("Capture Devices\n");
-	for (ma_uint32 iDevice = 0; iDevice < captureDeviceCount; ++iDevice)
-		printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
-
 	ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
-	deviceConfig.playback.pDeviceID= &pPlaybackDeviceInfos[0].id;
 	deviceConfig.playback.format   = ma_format_f32;
 	deviceConfig.playback.channels = 2;
 	deviceConfig.sampleRate        = 48000;
@@ -120,7 +170,7 @@ int main(void)
 
 	// Create window with graphics context
 	float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
-	GLFWwindow* window = glfwCreateWindow((int)(600 * main_scale), (int)(900 * main_scale), "Piracy", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow((int)(600 * main_scale), (int)(900 * main_scale), "Samples", NULL, NULL);
 	if (window == NULL)
 		return 1;
 	glfwMakeContextCurrent(window);
@@ -158,22 +208,14 @@ int main(void)
 	ImFontConfig* font_config = ImFontConfig_ImFontConfig();
 	style->FontSizeBase = 22;
 
-	bool font_found = false;
 	for (int i = 0; i < COUNTOF(fonts); ++i)
 	{
-		if (check_file_access(fonts[i], false, false)) // if file exists
-		{
-			printf("found font %s\n", fonts[i]);
-			ImFontAtlas_AddFontFromFileTTF(io->Fonts, fonts[i], 100, font_config, NULL);
-			font_found = true;
-			break;
-		}
-	}
+		if (!check_file_access(fonts[i], true, false))
+			continue;
 
-	if (!font_found)
-	{
-		printf("using default font\n");
-		ImFontAtlas_AddFontDefault(io->Fonts, font_config);
+		printf("found font %s\n", fonts[i]);
+		ImFontAtlas_AddFontFromFileTTF(io->Fonts, fonts[i], 100, font_config, NULL);
+		break;
 	}
 
 	ImFontConfig_destroy(font_config);
@@ -197,12 +239,6 @@ int main(void)
 			continue;
 		}
 
-		if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
-		{
-			drag_drop_start("C:\\Users\\Maks\\Programming\\splice\\splice\\build\\Debug\\OS_TRIN_808_atlspin_E.mp3");
-			io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
-		}
-
 		// Start the Dear ImGui frame
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
@@ -212,59 +248,131 @@ int main(void)
 			ImGuiWindowFlags_NoTitleBar |
 			ImGuiWindowFlags_NoResize |
 			ImGuiWindowFlags_NoMove |
-			ImGuiWindowFlags_NoDocking
-		);
-		igSetWindowPos_Vec2((ImVec2_c){0, 0}, 0);
-
-		int width, height;
-		glfwGetWindowSize(window, &width, &height);
-		igSetWindowSize_Vec2((ImVec2_c){width, height}, 0);
-
-		if (first_frame)
-			igSetKeyboardFocusHere(0);
-		if (igInputText("search", search_text, COUNTOF(search_text), ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
+			ImGuiWindowFlags_NoDocking);
 		{
-			free_search_results(results);
-			results = (struct search_results){0};
+			igSetWindowPos_Vec2((ImVec2_c){0, 0}, 0);
 
-			if (!search(search_text, &results))
-				printf("fail\n");
-		}
+			ImVec2_c window_size = igGetMainViewport()->WorkSize;
+			igSetWindowSize_Vec2(window_size, ImGuiCond_None);
+			window_size = igGetWindowViewport()->WorkSize;
 
-		igSeparator();
-
-		igBeginChild_Str("results", (ImVec2_c){0, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
-		for (int i = 0; i < results.length; ++i)
-		{
-			float height = SEARCH_RESULT_HEIGHT * main_scale;
-			float spacing = 10 * main_scale;
-
-			igPushID_Int(i);
-			igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4_c){0.1, 0.1, 0.1, 1});
-			igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
-
-			float start_y = igGetCursorPosY();
-
-			float button_size = height - height / 5;
-			igSameLine(0, spacing);
-			igSetCursorPosY(start_y + (height - button_size) / 2.f);
-			if (igButton(">", (ImVec2_c){button_size, button_size}))
+			if (first_frame)
+				igSetKeyboardFocusHere(0);
+			if (igInputText("search", search_text, COUNTOF(search_text), ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
 			{
-				if (!play_result(i))
-					printf("failed\n");
+				free_search_results(results);
+				results = (struct search_results){0};
+
+				if (!search(db, search_text, &results))
+					open_error_popup("search failed");
 			}
-			igSameLine(0, spacing);
 
-			igSetCursorPosY(start_y + (height - igGetTextLineHeightWithSpacing()) / 2.f);
-			igText(results.ptr[i].name);
+			igSeparator();
 
+			igBeginChild_Str("results", (ImVec2_c){0, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+			float full_width = igGetContentRegionAvail().x;
+			float spacing = 10;
+			float height = 50;
+			float button_size = 40;
+			float left_width = spacing + button_size;
+			float right_width = spacing + button_size;
+			float middle_width = full_width - spacing - left_width - right_width;
+			{
+				for (int i = 0; i < results.length; ++i)
+				{
+					struct search_result* result = &results.ptr[i];
+
+					igPushID_Int(i);
+					igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4_c){0.1, 0.1, 0.1, 1});
+					igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
+					{
+						igSameLine(0, 0);
+						igBeginChild_Str("left_area", (ImVec2_c){left_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+						debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(255, 0, 0, 255));
+						{
+							igSameLine(0, spacing);
+							center_cursor(0, button_size, 0, height);
+							if (igButton(">", (ImVec2_c){button_size, button_size}))
+							{
+								if (!play_result(i))
+									open_error_popup("failed to play search result");
+							}
+
+						}
+						igEndChild();
+
+						igSameLine(0, 0);
+						igBeginChild_Str("middle_area", (ImVec2_c){middle_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+						debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 255, 0, 255));
+						{
+							ImVec2_c pos = igGetCursorScreenPos();
+							if (result->file_on_disk &&
+								igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + middle_width, pos.y + height}, true))
+							{
+								igSetMouseCursor(ImGuiMouseCursor_Hand);
+								if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
+								{
+									drag_drop_start(result->file_on_disk);
+									io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
+								}
+							}
+
+							igSameLine(0, spacing);
+							text_box_truncated(result->name, middle_width - spacing, height);
+						}
+						igEndChild();
+
+						igSameLine(0, 0);
+						igBeginChild_Str("right_area", (ImVec2_c){right_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+						debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
+						{
+							igSameLine(0, spacing);
+							if (result->file_on_disk)
+							{
+								center_cursor(0, button_size, 0, height);
+								text_box("x", button_size, button_size);
+							}
+							else
+							{
+								center_cursor(0, button_size, 0, height);
+								if (igButton("v", (ImVec2_c){button_size, button_size}))
+								{
+									if (!database_get_and_save(db, result->name, result->audio_url))
+										open_error_popup("failed to save file");
+
+									update_search_result(db, result);
+								}
+							}
+						}
+						igEndChild();
+					}
+					igEndChild();
+					igPopStyleColor(1);
+					igPopID();
+				}
+			}
 			igEndChild();
-			igPopStyleColor(1);
-			igPopID();
 		}
-		igEndChild();
-
 		igEnd();
+
+		if (error_popup)
+		{
+			igOpenPopup_Str("error", ImGuiPopupFlags_None);
+			error_popup = !error_popup;
+		}
+
+		ImVec2 center = ImGuiViewport_GetCenter(igGetMainViewport());
+		igSetNextWindowPos(center, ImGuiCond_Appearing, (ImVec2_c){0.5f, 0.5f});
+		igSetNextWindowSize((ImVec2_c){500, 500}, ImGuiCond_Appearing);
+		if (igBeginPopupModal("error", NULL, ImGuiWindowFlags_None))
+		{
+			igText(error_message ? error_message : "no message");
+
+			if (igButton("close", (ImVec2_c){100, 100}))
+				igCloseCurrentPopup();
+
+			igEndPopup();
+		}
 
 		// Rendering
 		igRender();
@@ -277,6 +385,8 @@ int main(void)
 
 		glfwSwapBuffers(window);
 	}
+
+	free_search_results(results);
 
 	ImGui_ImplOpenGL3_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
@@ -292,6 +402,8 @@ int main(void)
 	curl_global_cleanup();
 
 	drag_drop_uninit();
+
+	database_uninit(db);
 
 	return EXIT_SUCCESS;
 }

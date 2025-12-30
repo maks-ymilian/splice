@@ -10,6 +10,7 @@ add_executable(splice
 	"src/database.c"
 	"src/platform.c"
 	"src/drag_drop.c"
+	"src/map.c"
 )
 
 option(USE_DEBUG "" OFF)
@@ -21,6 +22,7 @@ if (USE_DEBUG)
 		-Werror -Wall -Wextra -pedantic-errors
 
 		-Wmissing-prototypes
+		-Wstrict-prototypes
 		-Wcast-qual
 		-Wincompatible-pointer-types
 		-Wuninitialized
@@ -59,11 +61,11 @@ add_subdirectory("lib/curl-8.17.0")
 
 add_library(cimgui 
 	"lib/cimgui/cimgui.cpp"
-    "lib/cimgui/imgui/imgui.cpp"
-    "lib/cimgui/imgui/imgui_draw.cpp"
+	"lib/cimgui/imgui/imgui.cpp"
+	"lib/cimgui/imgui/imgui_draw.cpp"
 	"lib/cimgui/imgui/imgui_demo.cpp"
-    "lib/cimgui/imgui/imgui_tables.cpp"
-    "lib/cimgui/imgui/imgui_widgets.cpp"
+	"lib/cimgui/imgui/imgui_tables.cpp"
+	"lib/cimgui/imgui/imgui_widgets.cpp"
 	"lib/cimgui/imgui/backends/imgui_impl_glfw.cpp"
 	"lib/cimgui/imgui/backends/imgui_impl_opengl3.cpp"
 )

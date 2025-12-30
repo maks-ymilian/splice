@@ -11,21 +11,6 @@
 
 static const char* search_graphql_query = "query SamplesSearch($parent_asset_uuid: GUID, $query: String, $order: SortOrder = DESC, $sort: AssetSortType = popularity, $random_seed: String, $tags: [ID], $key: String, $chord_type: String, $bpm: String, $min_bpm: Int, $max_bpm: Int, $limit: Int = 50, $asset_category_slug: AssetCategorySlug, $page: Int = 1, $ac_uuid: String, $parent_asset_type: AssetTypeSlug) {\n  assetsSearch(\n    filter: {legacy: true, published: true, asset_type_slug: sample, query: $query, tag_ids: $tags, key: $key, chord_type: $chord_type, bpm: $bpm, min_bpm: $min_bpm, max_bpm: $max_bpm, asset_category_slug: $asset_category_slug, ac_uuid: $ac_uuid}\n    children: {parent_asset_uuid: $parent_asset_uuid}\n    pagination: {page: $page, limit: $limit}\n    sort: {sort: $sort, order: $order, random_seed: $random_seed}\n    legacy: {parent_asset_type: $parent_asset_type}\n  ) {\n    ...assetDetails\n    __typename\n  }\n}\n\nfragment assetDetails on AssetPage {\n  ...assetPageItems\n  ...assetTagSummaries\n  pagination_metadata {\n    currentPage\n    totalPages\n    __typename\n  }\n  response_metadata {\n    records\n    __typename\n  }\n  __typename\n}\n\nfragment assetPageItems on AssetPage {\n  items {\n    ... on IAsset {\n      asset_type_slug\n      asset_prices {\n        amount\n        currency\n        __typename\n      }\n      uuid\n      name\n      tags {\n        uuid\n        label\n        __typename\n      }\n      files {\n        uuid\n        name\n        hash\n        path\n        asset_file_type_slug\n        url\n        __typename\n      }\n      __typename\n    }\n    ... on IAssetChild {\n      parents(filter: {asset_type_slug: pack}) {\n        items {\n          ... on PackAsset {\n            permalink_slug\n            permalink_base_url\n            uuid\n            name\n            files {\n              uuid\n              path\n              asset_file_type_slug\n              url\n              __typename\n            }\n            __typename\n          }\n          __typename\n        }\n        __typename\n      }\n      __typename\n    }\n    ... on SampleAsset {\n      bpm\n      chord_type\n      key\n      duration\n      uuid\n      name\n      asset_category_slug\n      __typename\n    }\n    ... on PresetAsset {\n      uuid\n      name\n      asset_devices {\n        uuid\n        device {\n          name\n          uuid\n          minimum_device_version\n          __typename\n        }\n        __typename\n      }\n      __typename\n    }\n    ... on PackAsset {\n      uuid\n      name\n      provider {\n        name\n        permalink_slug\n        __typename\n      }\n      provider_uuid\n      uuid\n      permalink_slug\n      permalink_base_url\n      main_genre\n      __typename\n    }\n    __typename\n  }\n  __typename\n}\n\nfragment assetTagSummaries on AssetPage {\n  tag_summary {\n    count\n    tag {\n      uuid\n      label\n      taxonomy {\n        uuid\n        name\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n  __typename\n}";
 
-void free_search_results(struct search_results results)
-{
-	if (results.ptr)
-	{
-		for (int i = 0; i < results.length; ++i)
-		{
-			free(results.ptr[i].name);
-			free(results.ptr[i].name_full);
-			free(results.ptr[i].sound_url);
-		}
-	}
-
-	free(results.ptr);
-}
-
 static cJSON* build_search_body(char* query)
 {
 	cJSON* json = cJSON_CreateObject();
@@ -94,7 +79,7 @@ error:
 	return NULL;
 }
 
-bool search(char* text, struct search_results* results)
+bool search(struct database* db, char* text, struct search_results* results)
 {
 	CURL* list_request = curl_easy_init();
 	struct buffer response = {0};
@@ -146,33 +131,40 @@ bool search(char* text, struct search_results* results)
 	
 	for (int i = 0; i < cJSON_GetArraySize(items); ++i)
 	{
-		cJSON* item = cJSON_GetArrayItem(items, i);
-		if (!cJSON_IsObject(item))
+		cJSON* item_json = cJSON_GetArrayItem(items, i);
+		if (!cJSON_IsObject(item_json))
 			goto cleanup;
 
-		cJSON* name = cJSON_GetObjectItemCaseSensitive(item, "name");
-		if (!cJSON_IsString(name))
+		cJSON* name_json = cJSON_GetObjectItemCaseSensitive(item_json, "name");
+		if (!cJSON_IsString(name_json))
 			goto cleanup;
 
-		cJSON* files = cJSON_GetObjectItemCaseSensitive(item, "files");
-		if (!cJSON_IsArray(files) || cJSON_GetArraySize(files) < 1)
+		cJSON* files_json = cJSON_GetObjectItemCaseSensitive(item_json, "files");
+		if (!cJSON_IsArray(files_json) || cJSON_GetArraySize(files_json) < 1)
 			goto cleanup;
 
-		cJSON* audio = cJSON_GetArrayItem(files, 0);
-		if (!cJSON_IsObject(audio))
+		cJSON* audio_json = cJSON_GetArrayItem(files_json, 0);
+		if (!cJSON_IsObject(audio_json))
 			goto cleanup;
 
-		cJSON* url = cJSON_GetObjectItemCaseSensitive(audio, "url");
-		if (!cJSON_IsString(url))
+		cJSON* url_json = cJSON_GetObjectItemCaseSensitive(audio_json, "url");
+		if (!cJSON_IsString(url_json))
 			goto cleanup;
 
 		++results->length;
 		results->ptr = realloc(results->ptr, sizeof(*results->ptr) * results->length);
+
+		char* name = alloc_file_name(name_json->valuestring);
+		char* name_full = realloc_string(name_json->valuestring);
+		char* audio_url = realloc_string(url_json->valuestring);
+
 		results->ptr[i] = (struct search_result){
-			.name = alloc_file_name(name->valuestring),
-			.name_full = realloc_string(name->valuestring),
-			.sound_url = realloc_string(url->valuestring),
+			.name = name,
+			.name_full = name_full,
+			.audio_url = audio_url,
 		};
+
+		update_search_result(db, &results->ptr[i]);
 	}
 
 	return_value = true;
@@ -186,4 +178,42 @@ cleanup:
 	curl_easy_cleanup(list_request);
 
 	return return_value;
+}
+
+void update_search_result(struct database* db, struct search_result* result)
+{
+	if (!db || !result)
+		return;
+
+	char* path;
+	if (!database_get_file_path(db, result->name, NULL, &path))
+	{
+		printf("failed to query if file exists\n");
+		result->file_on_disk = NULL;
+	}
+	else if (path)
+	{
+		result->file_on_disk = path;
+	}
+	else 
+	{
+		result->file_on_disk = NULL;
+	}
+
+}
+
+void free_search_results(struct search_results results)
+{
+	if (results.ptr)
+	{
+		for (int i = 0; i < results.length; ++i)
+		{
+			free(results.ptr[i].name);
+			free(results.ptr[i].name_full);
+			free(results.ptr[i].audio_url);
+			free(results.ptr[i].file_on_disk);
+		}
+	}
+
+	free(results.ptr);
 }

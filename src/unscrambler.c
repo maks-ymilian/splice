@@ -27,27 +27,28 @@ static uint64_t bytes_to_integer(uint8_t* data, int length)
 	return num;
 }
 
-bool unscramble(uint8_t* data, int length, uint8_t** out_data, int* out_length)
+bool unscramble(struct buffer in, struct buffer* out)
 {
-	uint64_t size = bytes_to_integer(data + 2, 8);
+	uint64_t size = bytes_to_integer(in.data + 2, 8);
 
-	if (length == 0 || size > length)
+	if (in.length == 0 || size > in.length)
 		return false;
 
-	uint8_t* key = data + 10;
+	uint8_t* key = in.data + 10;
 	int key_length = 18;
 
 	for (int i = 0; i < key_length; ++i)
 		if (key[i] == 0)
 			return false;
 
-	uint8_t* payload = data + 28;
-	int index = decode(0, payload, data + length, size, key, key_length);
+	uint8_t* payload = in.data + 28;
+	int index = decode(0, payload, in.data + in.length, size, key, key_length);
 	index += size;
-	decode(index, payload, data + length, index + size, key, key_length);
+	decode(index, payload, in.data + in.length, index + size, key, key_length);
 
-	*out_data = payload;
-	*out_length = length - 28;
+	out->data = payload;
+	out->length = in.length - 28;
+	if (!copy_buffer(*out, out)) return false;
 
 	return true;
 }
