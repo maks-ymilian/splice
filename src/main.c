@@ -130,7 +130,7 @@ static void glfw_error_callback(int error, const char* description)
 
 int main(void)
 {
-	db = database_init(".");
+	db = database_init("files");
 
 	drag_drop_init();
 

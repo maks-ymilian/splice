@@ -8,7 +8,7 @@ add_executable(splice
 	"src/common.c"
 	"src/unscrambler.c"
 	"src/database.c"
-	"src/platform.c"
+	"src/file_utils.c"
 	"src/drag_drop.c"
 	"src/map.c"
 )
