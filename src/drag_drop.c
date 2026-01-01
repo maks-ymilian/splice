@@ -65,7 +65,7 @@ static HRESULT STDMETHODCALLTYPE Data_GetData(IDataObject* this, FORMATETC* fmt,
         return DV_E_FORMATETC;
 
     char* path = ((struct file_object*)this)->file_path;
-	int path_length = strlen(path);
+	int path_length = string_length(path);
 
     HGLOBAL hMem = GlobalAlloc(GHND, sizeof(DROPFILES) + path_length + 2);
     if (!hMem)

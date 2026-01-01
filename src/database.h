@@ -3,6 +3,7 @@
 #include <stdbool.h>
 
 #include "common.h"
+#include "file_utils.h"
 
 struct database;
 
@@ -11,4 +12,4 @@ void database_uninit(struct database* db);
 
 bool database_get(struct database* db, char* file, char* url, struct buffer* buffer);
 bool database_get_and_save(struct database* db, char* file, char* url);
-bool database_get_file_path(struct database* db, char* file, bool* out_exists, char** file_on_disk);
+bool database_get_file_path(struct database* db, char* file, bool* out_exists, file_string out, int* out_length);

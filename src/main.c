@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -18,8 +19,8 @@
 #include "search.h"
 #include "common.h"
 #include "database.h"
-#include "platform.h" 
 #include "drag_drop.h" 
+#include "file_utils.h" 
 
 #define DRAW_DEBUG 0
 
@@ -211,7 +212,7 @@ int main(void)
 
 	for (int i = 0; i < COUNTOF(fonts); ++i)
 	{
-		if (!check_file_access(fonts[i], true, false))
+		if (!is_file_accessible(fonts[i], string_length(fonts[i]), true, false, false))
 			continue;
 
 		printf("found font %s\n", fonts[i]);

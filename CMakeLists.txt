@@ -90,3 +90,6 @@ target_link_libraries(splice PRIVATE
 	glfw
 	libcurl
 )
+if (WIN32)
+	target_link_libraries(splice PRIVATE shlwapi pathcch)
+endif()

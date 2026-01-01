@@ -1,11 +1,8 @@
 #include "database.h"
 
-#include <string.h>
-
 #include <curl/curl.h>
 
 #include "unscrambler.h"
-#include "platform.h"
 #include "map.h"
 
 struct database
@@ -44,99 +41,25 @@ error:
 	return false;
 }
 
-static bool read_file(char* file, struct buffer* buffer)
+static bool convert_to_file_name(char* dir, int dir_length, char* file, int file_length, file_string out, int* out_length)
 {
-	*buffer = (struct buffer){0};
+	if (!file || file_length <= 0 || (dir && dir_length <= 0)) return false;
 
-	bool return_value = false;
+	file_string path;
+	int path_length;
+	if (dir)
+	{
+		if (!join_paths(dir, dir_length, file, file_length, path, &path_length)) return false;
+	}
+	else
+	{
+		path_length = file_length;
+		if (!file_string_copy(file, file_length, path)) return false;
+	}
 
-	FILE* fd = fopen(file, "rb");
-	if (!fd)
-		goto cleanup;
-
-	if (fseek(fd, 0, SEEK_END) != 0)
-		goto cleanup;
-
-	buffer->length = ftell(fd);
-	if (buffer->length < 0)
-		goto cleanup;
-
-	buffer->data = malloc(buffer->length);
-	if (!buffer->data)
-		goto cleanup;
-
-	if (fseek(fd, 0, SEEK_SET) != 0)
-		goto cleanup;
-
-	if (fread(buffer->data, sizeof(*buffer->data), buffer->length, fd) < buffer->length)
-		goto cleanup;
-
-	if (ferror(fd) != 0)
-		goto cleanup;
-
-	return_value = true;
-
-cleanup:
-	if (!return_value) free(buffer->data);
-	if (fd) fclose(fd);
-	return return_value;
-}
-
-static bool write_file(char* file, struct buffer buffer)
-{
-	if (!buffer.data || buffer.length <= 0)
-		return false;
-
-	bool return_value = false;
-
-	FILE* fd = fopen(file, "wb");
-	if (!fd)
-		goto cleanup;
-
-	if (fwrite(buffer.data, sizeof(*buffer.data), buffer.length, fd) < buffer.length)
-		goto cleanup;
-
-	if (ferror(fd) != 0)
-		goto cleanup;
-
-	return_value = true;
-
-cleanup:
-	if (fd) fclose(fd);
-	return return_value;
-}
-
-static bool convert_to_file_name(char* dir, char* file, char** out_file)
-{
-	if (!file)
-		return false;
-
-	char* new_dir = alloc_absolute_path(alloc_dir_name(dir));
-	char* new_file = alloc_file_name_no_extension(file);
-	if (!new_file || !new_dir)
-		goto cleanup;
-
-	int new_dir_length = strlen(new_dir);
-
-	char extension[] = ".mp3";
-	new_dir = realloc(new_dir, new_dir_length + 1 + strlen(new_file) + COUNTOF(extension));
-	if (!new_dir)
-		goto cleanup;
-
-	if (new_dir[new_dir_length - 1] != '/' &&
-		new_dir[new_dir_length - 1] != '\\')
-		strcat(new_dir, "/");
-
-	strcat(new_dir, new_file);
-	strcat(new_dir, extension);
-	*out_file = new_dir;
-	free(new_file);
+	char extension[] = "mp3";
+	if (!set_file_extension(path, path_length, extension, sizeof(extension) - 1, true, out, out_length)) return false;
 	return true;
-
-cleanup:
-	free(new_file);
-	free(new_dir);
-	return false;
 }
 
 static bool cache_add(struct database* db, char* file, struct buffer buffer)
@@ -166,29 +89,19 @@ static bool cache_get(struct database* db, char* file, struct buffer* buffer)
 
 struct database* database_init(char* files_path)
 {
-	if (!files_path)
-		return NULL;
-
 	struct database* db = malloc(sizeof(*db));
-	if (!db)
-		return NULL;
+	if (!db) return NULL;
 
-	char* dir_name = alloc_dir_name(files_path);
-	if (!dir_name) goto error;
-
-	db->files_path = alloc_absolute_path(dir_name);
+	db->files_path = string_alloc(files_path, string_length(files_path));
 	db->cached_files = map_init(sizeof(struct buffer));
-	if (!db->files_path || !db->cached_files) goto error;
+	if (!db->files_path || !db->cached_files)
+	{
+		free(db->files_path);
+		free(db);
+		return NULL;
+	}
 
-	free(dir_name);
 	return db;
-
-error:
-	free(dir_name);
-	map_uninit(db->cached_files);
-	free(db->files_path);
-	free(db);
-	return NULL;
 }
 
 void database_uninit(struct database* db)
@@ -224,19 +137,15 @@ bool database_get(struct database* db, char* file, char* url, struct buffer* buf
 	else
 	{
 		bool exists;
-		if (!database_get_file_path(db, file, &exists, NULL)) return false;
+		if (!database_get_file_path(db, file, &exists, NULL, NULL)) return false;
 		if (exists)
 		{
 			printf("retrieving %s from file\n", file);
 
-			char* name;
-			if (!convert_to_file_name(db->files_path, file, &name)) return false;
-			if (!read_file(name, buffer))
-			{
-				free(name);
-				return false;
-			}
-			free(name);
+			file_string file_name;
+			int file_name_length;
+			if (!convert_to_file_name(db->files_path, string_length(db->files_path), file, string_length(file), file_name, &file_name_length)) return false;
+			if (!read_file(file_name, file_name_length, buffer, false)) return false;
 		}
 		else
 		{
@@ -254,38 +163,25 @@ bool database_get(struct database* db, char* file, char* url, struct buffer* buf
 	return true;
 }
 
-bool database_get_file_path(struct database* db, char* file, bool* out_exists, char** file_on_disk)
+bool database_get_file_path(struct database* db, char* file, bool* out_exists, file_string out, int* out_length)
 {
-	if (!db || !file || (!out_exists && !file_on_disk)) return false;
+	if (!db || !file || (!out_exists)) return false;
 
-	char* name = NULL;
-	if (!convert_to_file_name(db->files_path, file, &name)) goto error;
-
-	if (check_file_access(name, false, false)) // if file exists
+	file_string file_name;
+	int file_name_length;
+	if (!convert_to_file_name(db->files_path, string_length(db->files_path), file, string_length(file), file_name, &file_name_length)) return false;
+	if (!is_file_accessible(file_name, file_name_length, false, false, false))
 	{
-		bool is_file;
-		if (!is_regular_file(name, &is_file) || !is_file) goto error;
-
-		if (out_exists) *out_exists = true;
-
-		if (file_on_disk)
-		{
-			*file_on_disk = alloc_absolute_path(name);
-			if (!*file_on_disk) goto error;
-		}
-
-		free(name);
+		if (out_exists) *out_exists = false;
 		return true;
 	}
 
-	if (out_exists) *out_exists = false;
-	if (file_on_disk) *file_on_disk = NULL;
-	free(name);
+	if (out)
+	{
+		if (!get_absolute_path(file_name, file_name_length, out, out_length)) return false;
+	}
+	if (out_exists) *out_exists = true;
 	return true;
-
-error:
-	free(name);
-	return false;
 }
 
 bool database_get_and_save(struct database* db, char* file, char* url)
@@ -293,19 +189,14 @@ bool database_get_and_save(struct database* db, char* file, char* url)
 	if (!db || !file || !url) return false;
 
 	bool exists;
-	if (!database_get_file_path(db, file, &exists, NULL) || exists) return false;
+	if (!database_get_file_path(db, file, &exists, NULL, NULL) || exists) return false;
 
 	struct buffer buffer;
 	if (!database_get(db, file, url, &buffer)) return false;
 
-	char* name = NULL;
-	if (!convert_to_file_name(db->files_path, file, &name)) return false;
-	if (!write_file(name, buffer))
-	{
-		free(name);
-		return false;
-	}
-
-	free(name);
+	file_string name;
+	int name_length;
+	if (!convert_to_file_name(db->files_path, string_length(db->files_path), file, string_length(file), name, &name_length)) return false;
+	if (!write_file(name, name_length, buffer, false)) return false;
 	return true;
 }

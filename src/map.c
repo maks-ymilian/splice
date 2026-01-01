@@ -192,7 +192,7 @@ bool map_add(struct map* map, char* key, void* value, bool* out_found)
 	(*node)->key = NULL;
 	(*node)->value = NULL;
 
-	(*node)->key = realloc_string(key);
+	(*node)->key = string_alloc(key, string_length(key));
 	if (!(*node)->key) goto cleanup;
 
 	(*node)->value = malloc(map->data_size);

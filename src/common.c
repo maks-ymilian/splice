@@ -2,17 +2,35 @@
 
 #include <string.h>
 
-char* realloc_string(char* string)
+int string_length(char* string)
 {
-	if (!string) return NULL;
+	if (!string) return 0;
+	int length = strlen(string);
+	if (length < 0) return 0;
+	return length;
+}
 
-	int length = strlen(string) + 1;
+char* string_alloc(char* string, int string_length)
+{
+	if (!string || string_length <= 0) return NULL;
 
-	char* new = malloc(length);
+	char* new = malloc(string_length + 1);
 	if (!new) return NULL;
 
-	memcpy(new, string, length);
+	memcpy(new, string, string_length);
+	new[string_length] = '\0';
 	return new;
+}
+
+void string_replace_char(char* string, int string_length, char find, char replace)
+{
+	if (!string || string_length < 0) return;
+
+	for (int i = 0; i < string_length; ++i)
+	{
+		if (string[i] == find)
+			string[i] = replace;
+	}
 }
 
 bool copy_buffer(struct buffer from, struct buffer* to)
