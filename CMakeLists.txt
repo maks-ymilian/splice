@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 project(splice C CXX)
 
-add_executable(splice
+set(SOURCES
 	"src/main.c"
 	"src/search.c"
 	"src/common.c"
@@ -11,8 +11,13 @@ add_executable(splice
 	"src/file_utils.c"
 	"src/drag_drop.c"
 	"src/map.c"
-	"src/windows_utils.c"
 )
+
+if (WIN32)
+	list(APPEND SOURCES "src/windows_utils.c")
+endif()
+
+add_executable(splice ${SOURCES})
 
 option(USE_DEBUG "" OFF)
 if (USE_DEBUG)
