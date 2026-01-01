@@ -160,7 +160,7 @@ bool search(struct database* db, char* text, struct search_results* results)
 		if (!extract_file_name(name_json->valuestring, string_length(name_json->valuestring), true, &has_file_name, short_name, &short_name_length)) goto cleanup;
 		char* name = string_alloc(short_name, short_name_length);
 		char* name_full = string_alloc(name_json->valuestring, string_length(name_json->valuestring));
-		char* audio_url = string_alloc(url_json->valuestring, string_length(name_json->valuestring));
+		char* audio_url = string_alloc(url_json->valuestring, string_length(url_json->valuestring));
 
 		if (!name || !name_full || !audio_url) goto cleanup;
 
@@ -200,7 +200,9 @@ void update_search_result(struct database* db, struct search_result* result)
 		result->file_on_disk = NULL;
 	}
 	else if (exists)
-		result->file_on_disk = path;
+	{
+		result->file_on_disk = string_alloc(path, path_length);
+	}
 	else 
 		result->file_on_disk = NULL;
 }

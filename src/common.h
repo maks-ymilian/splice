@@ -26,7 +26,7 @@
 struct buffer
 {
 	uint8_t* data;
-	ssize_t length;
+	int64_t length;
 };
 
 int string_length(char* string);

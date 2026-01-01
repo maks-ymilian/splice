@@ -11,6 +11,7 @@ add_executable(splice
 	"src/file_utils.c"
 	"src/drag_drop.c"
 	"src/map.c"
+	"src/windows_utils.c"
 )
 
 option(USE_DEBUG "" OFF)

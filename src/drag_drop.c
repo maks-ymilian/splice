@@ -5,11 +5,7 @@
 
 #if defined(_WIN32)
 
-#include <Windows.h>
-#include <ole2.h>
-#include <strsafe.h>
-#include <shlobj.h>
-#include <process.h>
+#include "windows_utils.h"
 
 #include "common.h"
 
@@ -19,7 +15,8 @@ struct file_object
 {
     IDataObject IDataObject_iface;
     LONG ref_count;
-    char* file_path;
+    file_string_wchar file_path;
+    int file_path_length;
 };
 
 static HRESULT STDMETHODCALLTYPE Data_QueryInterface(IDataObject* this, REFIID riid, void** ppv)
@@ -45,10 +42,7 @@ static ULONG STDMETHODCALLTYPE Data_Release(IDataObject* this)
     struct file_object* obj = (struct file_object*)this;
     ULONG ref = InterlockedDecrement(&obj->ref_count);
     if (!ref)
-    {
-        free(obj->file_path);
         free(obj);
-    }
     return ref;
 }
 
@@ -57,55 +51,80 @@ static HRESULT STDMETHODCALLTYPE Data_GetData(IDataObject* this, FORMATETC* fmt,
     if (!fmt || !med)
         return E_INVALIDARG;
 
-    if (fmt->cfFormat != CF_HDROP ||
-		!(fmt->tymed & TYMED_HGLOBAL) ||
+    UINT fmt_file_name = RegisterClipboardFormatW(CFSTR_FILENAMEW);
+
+    if (!(fmt->tymed & TYMED_HGLOBAL) ||
 		fmt->dwAspect != DVASPECT_CONTENT ||
 		fmt->lindex != -1 ||
-		fmt->ptd != NULL)
+        fmt->ptd != NULL)
         return DV_E_FORMATETC;
 
-    char* path = ((struct file_object*)this)->file_path;
-	int path_length = string_length(path);
+    wchar_t* path = ((struct file_object*)this)->file_path;
+	int path_length = ((struct file_object*)this)->file_path_length;
 
-    HGLOBAL hMem = GlobalAlloc(GHND, sizeof(DROPFILES) + path_length + 2);
-    if (!hMem)
-        return E_OUTOFMEMORY;
-
-    DROPFILES* df = (DROPFILES*)GlobalLock(hMem);
-    if (!df)
+    HGLOBAL hMem;
+    if (fmt->cfFormat == CF_HDROP)
     {
-        GlobalFree(hMem);
-        return E_OUTOFMEMORY;
+		hMem = GlobalAlloc(GHND, sizeof(DROPFILES) + (path_length + 2) * sizeof(*path));
+		if (!hMem)
+			return E_OUTOFMEMORY;
+
+		DROPFILES* df = (DROPFILES*)GlobalLock(hMem);
+		if (!df)
+		{
+			GlobalFree(hMem);
+			return E_OUTOFMEMORY;
+		}
+
+		df->pFiles = sizeof(DROPFILES);
+		df->pt.x = 0;
+		df->pt.y = 0;
+		df->fNC = FALSE;
+		df->fWide = TRUE;
+
+		wchar_t* dest = (BYTE*)df + sizeof(DROPFILES);
+		memcpy(dest, path, path_length * sizeof(*path));
+		dest[path_length] = L'\0';
+		dest[path_length + 1] = L'\0';
+
+		GlobalUnlock(hMem);
     }
+    else if (fmt->cfFormat == CF_UNICODETEXT)
+    {
+		hMem = GlobalAlloc(GHND, (path_length + 1) * sizeof(*path));
+		if (!hMem)
+			return E_OUTOFMEMORY;
 
-    df->pFiles = sizeof(DROPFILES);
-    df->pt.x = 0;
-    df->pt.y = 0;
-    df->fNC = FALSE;
-    df->fWide = FALSE;
+		wchar_t* out = (wchar_t*)GlobalLock(hMem);
+		if (!out)
+		{
+			GlobalFree(hMem);
+			return E_OUTOFMEMORY;
+		}
 
-	char* dest = (char*)df + sizeof(DROPFILES);
-	memcpy(dest, path, path_length);
-	dest[path_length] = '\0';
-	dest[path_length + 1] = '\0';
+		memcpy(out, path, path_length * sizeof(*path));
+		out[path_length] = L'\0';
 
-    GlobalUnlock(hMem);
+		GlobalUnlock(hMem);
+    }
+    else
+        return DV_E_FORMATETC;
 
-    med->tymed = TYMED_HGLOBAL;
-    med->hGlobal = hMem;
-    med->pUnkForRelease = NULL;
+	med->tymed = TYMED_HGLOBAL;
+	med->hGlobal = hMem;
+	med->pUnkForRelease = NULL;
 
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE Data_GetDataHere() { return E_NOTIMPL; }
-static HRESULT STDMETHODCALLTYPE Data_QueryGetData() { return S_OK; }
-static HRESULT STDMETHODCALLTYPE Data_GetCanonicalFormatEtc() { return E_NOTIMPL; }
-static HRESULT STDMETHODCALLTYPE Data_SetData() { return E_NOTIMPL; }
-static HRESULT STDMETHODCALLTYPE Data_EnumFormatEtc() { return E_NOTIMPL; }
-static HRESULT STDMETHODCALLTYPE Data_DAdvise() { return OLE_E_ADVISENOTSUPPORTED; }
-static HRESULT STDMETHODCALLTYPE Data_DUnadvise() { return OLE_E_ADVISENOTSUPPORTED; }
-static HRESULT STDMETHODCALLTYPE Data_EnumDAdvise() { return OLE_E_ADVISENOTSUPPORTED; }
+static HRESULT STDMETHODCALLTYPE Data_GetDataHere(IDataObject* this, FORMATETC* pformatetc, STGMEDIUM* pmedium) { return E_NOTIMPL; }
+static HRESULT STDMETHODCALLTYPE Data_QueryGetData(IDataObject* this, FORMATETC* pformatetc) { return S_OK; }
+static HRESULT STDMETHODCALLTYPE Data_GetCanonicalFormatEtc(IDataObject* this, FORMATETC* pformatectIn, FORMATETC* pformatetcOut) { return E_NOTIMPL; }
+static HRESULT STDMETHODCALLTYPE Data_SetData(IDataObject* this, FORMATETC* pformatetc, STGMEDIUM* pmedium, BOOL fRelease) { return E_NOTIMPL; }
+static HRESULT STDMETHODCALLTYPE Data_EnumFormatEtc(IDataObject* this, DWORD dwDirection, IEnumFORMATETC** ppenumFormatEtc) { return E_NOTIMPL; }
+static HRESULT STDMETHODCALLTYPE Data_DAdvise(IDataObject* this, FORMATETC* pformatetc, DWORD advf, IAdviseSink* pAdvSink, DWORD* pdwConnection) { return OLE_E_ADVISENOTSUPPORTED; }
+static HRESULT STDMETHODCALLTYPE Data_DUnadvise(IDataObject* this, DWORD dwConnection) { return OLE_E_ADVISENOTSUPPORTED; }
+static HRESULT STDMETHODCALLTYPE Data_EnumDAdvise(IDataObject* this, IEnumSTATDATA** ppenumAdvise) { return OLE_E_ADVISENOTSUPPORTED; }
 
 IDataObjectVtbl Data_Vtbl = {
     Data_QueryInterface,
@@ -194,7 +213,7 @@ void drag_drop_uninit(void)
 
 void drag_drop_start(char* file_path)
 {
-    if (!initialized)
+    if (!initialized || !file_path)
         return;
 
 	printf("drag dropping %s\n", file_path);
@@ -202,7 +221,11 @@ void drag_drop_start(char* file_path)
     struct file_object* obj = calloc(1, sizeof(struct file_object));
 	obj->IDataObject_iface.lpVtbl = &Data_Vtbl;
 	obj->ref_count = 1;
-    obj->file_path = realloc_string(file_path);
+    if (!convert_to_wchar(file_path, string_length(file_path), obj->file_path, &obj->file_path_length))
+    {
+		obj->IDataObject_iface.lpVtbl->Release(obj);
+        return;
+    }
 
     struct drop_source* src = calloc(1, sizeof(struct drop_source));
 	src->IDropSource_iface.lpVtbl = &Drop_Vtbl;
@@ -219,11 +242,7 @@ void drag_drop_start(char* file_path)
 
 	obj->IDataObject_iface.lpVtbl->Release(obj);
 	src->IDropSource_iface.lpVtbl->Release(src);
-
 	return;
-
-error:
-    printf("failed to start drag drop\n");
 }
 
 #else
