@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -27,7 +26,9 @@
 static struct database* db;
 
 static char search_text[100];
-static struct search_results results;
+static struct search_session* search_session;
+static struct search_context* search_context;
+
 static char* error_message;
 static bool error_popup;
 
@@ -42,13 +43,13 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput,
 	(void)pInput;
 }
 
-static bool play_result(int index)
+static bool play_result(struct search_item_data result)
 {
 	ma_device_stop(&device);
 	ma_decoder_uninit(&decoder);
 
 	struct buffer audio;
-	if (!database_get(db, results.ptr[index].name, results.ptr[index].audio_url, &audio))
+	if (!database_get(db, result.name, result.audio_url, &audio))
 		return false;
 
 	ma_decoder_config decoder_config = ma_decoder_config_init(device.playback.format, device.playback.channels, device.sampleRate);
@@ -57,6 +58,26 @@ static bool play_result(int index)
 
 	if (ma_device_start(&device) != MA_SUCCESS)
 		return false;
+
+	return true;
+}
+
+static bool update_search_item(struct database* db, struct search_item_data* item_data)
+{
+	if (!db || !item_data) return false;
+
+	bool exists;
+	file_string path;
+	int path_length;
+	if (!database_get_file_path(db, item_data->name, &exists, path, &path_length))
+		return false;
+	else if (exists)
+	{
+		item_data->file_on_disk = string_alloc(path, path_length);
+		if (!item_data->file_on_disk) return false;
+	}
+	else 
+		item_data->file_on_disk = NULL;
 
 	return true;
 }
@@ -132,6 +153,7 @@ static void glfw_error_callback(int error, const char* description)
 int main(void)
 {
 	db = database_init("files");
+	search_context = search_context_init(db, update_search_item, 20);
 
 	drag_drop_init();
 
@@ -262,98 +284,107 @@ int main(void)
 				igSetKeyboardFocusHere(0);
 			if (igInputText("search", search_text, COUNTOF(search_text), ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
 			{
-				free_search_results(results);
-				results = (struct search_results){0};
-
-				if (!search(db, search_text, &results))
+				search_session_uninit(search_session);
+				if (!(search_session = search_session_init(search_context, (struct search_query){.search_string = search_text})) ||
+					!search_session_fetch_next_page(search_session))
 					open_error_popup("search failed");
 			}
 
 			igSeparator();
 
-			igBeginChild_Str("results", (ImVec2_c){0, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
-			float full_width = igGetContentRegionAvail().x;
-			float spacing = 10;
-			float height = 50;
-			float button_size = 40;
-			float left_width = spacing + button_size;
-			float right_width = spacing + button_size;
-			float middle_width = full_width - spacing - left_width - right_width;
+			if (search_session && search_session->pages && search_session->pages_length > 0)
 			{
-				for (int i = 0; i < results.length; ++i)
+				igBeginChild_Str("results", (ImVec2_c){0, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+				float full_width = igGetContentRegionAvail().x;
+				float spacing = 10;
+				float height = 50;
+				float button_size = 40;
+				float left_width = spacing + button_size;
+				float right_width = spacing + button_size;
+				float middle_width = full_width - spacing - left_width - right_width;
 				{
-					struct search_result* result = &results.ptr[i];
-
-					igPushID_Int(i);
-					igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4_c){0.1, 0.1, 0.1, 1});
-					igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
+					int unique_id = 0;
+					for (int i = 0; i < search_session->pages_length; ++i)
 					{
-						igSameLine(0, 0);
-						igBeginChild_Str("left_area", (ImVec2_c){left_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
-						debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(255, 0, 0, 255));
+						for (int j = 0; j < search_session->pages[i].items_length; ++j)
 						{
-							igSameLine(0, spacing);
-							center_cursor(0, button_size, 0, height);
-							if (igButton(">", (ImVec2_c){button_size, button_size}))
-							{
-								if (!play_result(i))
-									open_error_popup("failed to play search result");
-							}
+							struct search_item* result = &search_session->pages[i].items[j];
 
-						}
-						igEndChild();
-
-						igSameLine(0, 0);
-						igBeginChild_Str("middle_area", (ImVec2_c){middle_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
-						debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 255, 0, 255));
-						{
-							ImVec2_c pos = igGetCursorScreenPos();
-							if (result->file_on_disk &&
-								igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + middle_width, pos.y + height}, true))
+							igPushID_Int(++unique_id);
+							igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4_c){0.1, 0.1, 0.1, 1});
+							igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
 							{
-								igSetMouseCursor(ImGuiMouseCursor_Hand);
-								if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
+								igSameLine(0, 0);
+								igBeginChild_Str("left_area", (ImVec2_c){left_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(255, 0, 0, 255));
 								{
-									drag_drop_start(result->file_on_disk);
-									io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
+									igSameLine(0, spacing);
+									center_cursor(0, button_size, 0, height);
+									if (igButton(">", (ImVec2_c){button_size, button_size}))
+										if (!play_result(result->data))
+											open_error_popup("failed to play search result");
 								}
-							}
+								igEndChild();
 
-							igSameLine(0, spacing);
-							text_box_truncated(result->name, middle_width - spacing, height);
-						}
-						igEndChild();
-
-						igSameLine(0, 0);
-						igBeginChild_Str("right_area", (ImVec2_c){right_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
-						debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
-						{
-							igSameLine(0, spacing);
-							if (result->file_on_disk)
-							{
-								center_cursor(0, button_size, 0, height);
-								text_box("x", button_size, button_size);
-							}
-							else
-							{
-								center_cursor(0, button_size, 0, height);
-								if (igButton("v", (ImVec2_c){button_size, button_size}))
+								igSameLine(0, 0);
+								igBeginChild_Str("middle_area", (ImVec2_c){middle_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 255, 0, 255));
 								{
-									if (!database_get_and_save(db, result->name, result->audio_url))
-										open_error_popup("failed to save file");
+									ImVec2_c pos = igGetCursorScreenPos();
+									if (result->data.file_on_disk &&
+										igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + middle_width, pos.y + height}, true))
+									{
+										igSetMouseCursor(ImGuiMouseCursor_Hand);
+										if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
+										{
+											drag_drop_start(result->data.file_on_disk);
+											io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
+										}
+									}
 
-									update_search_result(db, result);
+									igSameLine(0, spacing);
+									text_box_truncated(result->data.name, middle_width - spacing, height);
 								}
+								igEndChild();
+
+								igSameLine(0, 0);
+								igBeginChild_Str("right_area", (ImVec2_c){right_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
+								{
+									igSameLine(0, spacing);
+									if (result->data.file_on_disk)
+									{
+										center_cursor(0, button_size, 0, height);
+										text_box("x", button_size, button_size);
+									}
+									else
+									{
+										center_cursor(0, button_size, 0, height);
+										if (igButton("v", (ImVec2_c){button_size, button_size}))
+										{
+											if (!database_get_and_save(db, result->data.name, result->data.audio_url))
+												open_error_popup("failed to save file");
+
+											if (!search_item_update(result))
+												open_error_popup("failed to update search result");
+										}
+									}
+								}
+								igEndChild();
 							}
+							igEndChild();
+							igPopStyleColor(1);
+							igPopID();
 						}
-						igEndChild();
 					}
-					igEndChild();
-					igPopStyleColor(1);
-					igPopID();
+
+					if (search_session->total_pages <= search_session->pages_length)
+						text_box("no more results", full_width, 50);
+					else if (igButton("load more", (ImVec2_c){full_width, 50}))
+						search_session_fetch_next_page(search_session);
 				}
+				igEndChild();
 			}
-			igEndChild();
 		}
 		igEnd();
 
@@ -388,8 +419,6 @@ int main(void)
 		glfwSwapBuffers(window);
 	}
 
-	free_search_results(results);
-
 	ImGui_ImplOpenGL3_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
 	igDestroyContext(ig_context);
@@ -405,6 +434,8 @@ int main(void)
 
 	drag_drop_uninit();
 
+	search_session_uninit(search_session);
+	search_context_uninit(search_context);
 	database_uninit(db);
 
 	return EXIT_SUCCESS;

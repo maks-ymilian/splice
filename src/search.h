@@ -4,7 +4,7 @@
 
 #include "database.h"
 
-struct search_result
+struct search_item_data
 {
 	char* name;
 	char* name_full;
@@ -12,13 +12,41 @@ struct search_result
 	char* file_on_disk;
 };
 
-struct search_results
+struct search_query
 {
-	struct search_result* ptr;
-	int length;
+	char* search_string;
 };
 
-bool search(struct database* db, char* text, struct search_results* results);
-void update_search_result(struct database* db, struct search_result* result);
+struct search_item
+{
+	struct search_session* session;
+	struct search_item_data data;
+};
 
-void free_search_results(struct search_results results);
+struct search_page
+{
+	struct search_item* items;
+	int items_length;
+};
+
+struct search_session
+{
+	struct search_context* context;
+	struct search_query query;
+	struct search_page* pages;
+	int pages_length;
+	int total_pages;
+};
+
+struct search_context;
+
+typedef bool (*search_item_update_func)(struct database* db, struct search_item_data* item_data);
+
+struct search_context* search_context_init(struct database* db, search_item_update_func item_update_func, int max_results_per_page);
+void search_context_uninit(struct search_context* context);
+
+struct search_session* search_session_init(struct search_context* context, struct search_query query);
+void search_session_uninit(struct search_session* session);
+bool search_session_fetch_next_page(struct search_session* session);
+
+bool search_item_update(struct search_item* item);
