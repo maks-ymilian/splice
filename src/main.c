@@ -66,28 +66,41 @@ static ma_decoder decoder;
 
 static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-	ma_decoder_read_pcm_frames(&decoder, pOutput, frameCount, NULL);
-
 	(void)pDevice;
 	(void)pInput;
+
+	ma_decoder_read_pcm_frames(&decoder, pOutput, frameCount, NULL);
+
+	ma_uint64 cursor;
+	ma_uint64 length;
+	if (ma_decoder_get_cursor_in_pcm_frames(&decoder, &cursor) ||
+		ma_decoder_get_length_in_pcm_frames(&decoder, &length)) return;
+
+	if (cursor >= length)
+		currently_playing_name = NULL;
 }
 
 static void on_device_notification(const ma_device_notification* notification)
 {
 	if (notification->type != ma_device_notification_type_stopped) return;
-
 	currently_playing_name = NULL;
 }
 
-static bool play_result(struct search_item_data result)
+static bool toggle_play(struct search_item_data result)
 {
+	if (currently_playing_name == result.name)
+	{
+		ma_device_stop(&device);
+		return true;
+	}
+
 	ma_device_stop(&device);
-	ma_decoder_uninit(&decoder);
 
 	struct buffer audio;
 	if (!database_get(db, result.name, result.audio_url, &audio))
 		return false;
 
+	ma_decoder_uninit(&decoder);
 	ma_decoder_config decoder_config = ma_decoder_config_init(device.playback.format, device.playback.channels, device.sampleRate);
 	if (ma_decoder_init_memory(audio.data, audio.length, &decoder_config, &decoder) != MA_SUCCESS)
 		return false;
@@ -374,20 +387,27 @@ int main(void)
 						for (int j = 0; j < search_session->pages[i].items_length; ++j)
 						{
 							struct search_item* result = &search_session->pages[i].items[j];
-
 							igPushID_Int(++unique_id);
 							igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4_c){0.1, 0.1, 0.1, 1});
 							igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
 							{
+								ImVec2_c pos = igGetCursorScreenPos();
+								float width = play_column_width + time_column_width + key_column_width + bpm_column_width + text_column_width;
+								if (igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + width, pos.y + height}, true))
+								{
+									igSetMouseCursor(ImGuiMouseCursor_ResizeAll);
+									if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
+										if (!toggle_play(result->data))
+											open_error_popup("failed to play search result");
+								}
+
 								igSameLine(0, 0);
 								igBeginChild_Str("play_button_column", (ImVec2_c){play_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(255, 0, 0, 255));
 								{
 									igSameLine(0, spacing);
 									align_cursor(ALIGN_TYPE_CENTER, 0, button_size, 0, height);
-									if (igButton(result->data.name == currently_playing_name ? "l l" : ">", (ImVec2_c){button_size, button_size}))
-										if (!play_result(result->data))
-											open_error_popup("failed to play search result");
+									igButton(result->data.name == currently_playing_name ? "l l" : ">", (ImVec2_c){button_size, button_size});
 								}
 								igEndChild();
 
@@ -396,8 +416,9 @@ int main(void)
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 255, 0, 255));
 								{
 									ImVec2_c pos = igGetCursorScreenPos();
+									float width = time_column_width + key_column_width + bpm_column_width + text_column_width;
 									if (result->data.file_on_disk &&
-										igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + text_column_width, pos.y + height}, true))
+										igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + width, pos.y + height}, true))
 									{
 										igSetMouseCursor(ImGuiMouseCursor_Hand);
 										if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
