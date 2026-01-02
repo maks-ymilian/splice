@@ -311,6 +311,8 @@ int main(void)
 
 	ImVec4 clear_color = (ImVec4){0, 0, 0, 1};
 
+	char* currently_dragging_name = NULL;
+	bool mouse_left_dragging_item = false;
 	for (bool first_frame = true; !glfwWindowShouldClose(window); first_frame = false)
 	{
 		// Poll and handle events (inputs, window resize, etc.)
@@ -388,7 +390,6 @@ int main(void)
 						{
 							struct search_item* result = &search_session->pages[i].items[j];
 
-							igBeginGroup();
 							igPushID_Int(++unique_id);
 							igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4_c){0.1, 0.1, 0.1, 1});
 							igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
@@ -399,7 +400,9 @@ int main(void)
 								{
 									igSameLine(0, spacing);
 									align_cursor(ALIGN_TYPE_CENTER, 0, button_size, 0, height);
-									igButton(result->data.name == currently_playing_name ? "l l" : ">", (ImVec2_c){button_size, button_size});
+									if (igButton(result->data.name == currently_playing_name ? "l l" : ">", (ImVec2_c){button_size, button_size}))
+										if (!toggle_play(result->data))
+											open_error_popup("failed to play search result");
 								}
 								igEndChild();
 
@@ -407,19 +410,6 @@ int main(void)
 								igBeginChild_Str("name_column", (ImVec2_c){text_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 255, 0, 255));
 								{
-									ImVec2_c pos = igGetCursorScreenPos();
-									float width = time_column_width + key_column_width + bpm_column_width + text_column_width;
-									if (result->data.file_on_disk &&
-										igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + width, pos.y + height}, true))
-									{
-										igSetMouseCursor(ImGuiMouseCursor_Hand);
-										if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
-										{
-											drag_drop_start(result->data.file_on_disk);
-											io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
-										}
-									}
-
 									(void)text_box_truncated;
 
 									int tag_font_size = 18;
@@ -496,20 +486,43 @@ int main(void)
 									}
 								}
 								igEndChild();
+
+								if (igIsWindowHovered(ImGuiHoveredFlags_ChildWindows))
+								{
+									ImVec2_c size = igGetWindowSize();
+									ImVec2_c min = igGetWindowPos();
+									ImVec2_c max = (ImVec2_c){min.x + size.x, min.y + size.y};
+									ImDrawList_AddRectFilled(igGetWindowDrawList(), min, max,
+										io->MouseDown[0]
+										? igGetColorU32_Vec4((ImVec4_c){0.2, 0.2, 0.2, 1})
+										: igGetColorU32_Vec4((ImVec4_c){0.17, 0.17, 0.17, 1}), 0, ImDrawFlags_None);
+
+									if (result->data.file_on_disk)
+										igSetMouseCursor(ImGuiMouseCursor_Hand);
+
+									if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
+									{
+										currently_dragging_name = result->data.name;
+										mouse_left_dragging_item = false;
+									}
+
+									if (!io->MouseDown[0] && currently_dragging_name == result->data.name && !mouse_left_dragging_item)
+										if (!toggle_play(result->data))
+											open_error_popup("failed to play search result");
+
+								}
+								else if (currently_dragging_name == result->data.name)
+									mouse_left_dragging_item = true;
 							}
 							igEndChild();
 							igPopStyleColor(1);
 							igPopID();
-							igEndGroup();
-							// igItemHoverable((ImRect_c){begin_pos, (ImVec2_c){begin_pos.x + full_width, begin_pos.y + height}}, igGetID_Str("result item"), ImGuiItemFlags_None);
-							// igIsMouseHoveringRect(begin_pos, (ImVec2_c){begin_pos.x + width, begin_pos.y + height}, true)
-							// float width = play_column_width + time_column_width + key_column_width + bpm_column_width + text_column_width;
-							if (igIsItemHovered(ImGuiHoveredFlags_None))
+
+							if (currently_dragging_name == result->data.name && result->data.file_on_disk &&
+								igIsMouseDragPastThreshold(ImGuiMouseButton_Left, 50))
 							{
-								igSetMouseCursor(ImGuiMouseCursor_ResizeAll);
-								if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
-									if (!toggle_play(result->data))
-										open_error_popup("failed to play search result");
+								drag_drop_start(result->data.file_on_disk);
+								io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
 							}
 						}
 					}
@@ -542,6 +555,11 @@ int main(void)
 
 			igEndPopup();
 		}
+
+		if (!io->MouseDown[0])
+			currently_dragging_name = NULL;
+		if (currently_dragging_name)
+			printf("%s\n", currently_dragging_name ? currently_dragging_name : "none");
 
 		// Rendering
 		igRender();
