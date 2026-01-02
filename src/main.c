@@ -387,20 +387,12 @@ int main(void)
 						for (int j = 0; j < search_session->pages[i].items_length; ++j)
 						{
 							struct search_item* result = &search_session->pages[i].items[j];
+
+							igBeginGroup();
 							igPushID_Int(++unique_id);
 							igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4_c){0.1, 0.1, 0.1, 1});
 							igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
 							{
-								ImVec2_c pos = igGetCursorScreenPos();
-								float width = play_column_width + time_column_width + key_column_width + bpm_column_width + text_column_width;
-								if (igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + width, pos.y + height}, true))
-								{
-									igSetMouseCursor(ImGuiMouseCursor_ResizeAll);
-									if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
-										if (!toggle_play(result->data))
-											open_error_popup("failed to play search result");
-								}
-
 								igSameLine(0, 0);
 								igBeginChild_Str("play_button_column", (ImVec2_c){play_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(255, 0, 0, 255));
@@ -504,11 +496,21 @@ int main(void)
 									}
 								}
 								igEndChild();
-
 							}
 							igEndChild();
 							igPopStyleColor(1);
 							igPopID();
+							igEndGroup();
+							// igItemHoverable((ImRect_c){begin_pos, (ImVec2_c){begin_pos.x + full_width, begin_pos.y + height}}, igGetID_Str("result item"), ImGuiItemFlags_None);
+							// igIsMouseHoveringRect(begin_pos, (ImVec2_c){begin_pos.x + width, begin_pos.y + height}, true)
+							// float width = play_column_width + time_column_width + key_column_width + bpm_column_width + text_column_width;
+							if (igIsItemHovered(ImGuiHoveredFlags_None))
+							{
+								igSetMouseCursor(ImGuiMouseCursor_ResizeAll);
+								if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
+									if (!toggle_play(result->data))
+										open_error_popup("failed to play search result");
+							}
 						}
 					}
 
