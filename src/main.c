@@ -32,6 +32,15 @@ enum sort_type
 	SORT_TYPE_LENGTH,
 };
 
+enum align_type
+{
+	ALIGN_TYPE_CENTER = 0,
+	ALIGN_TYPE_LEFT = 2,
+	ALIGN_TYPE_RIGHT = 4,
+	ALIGN_TYPE_TOP = 8,
+	ALIGN_TYPE_BOTTOM = 16,
+};
+
 static const char* sort_type_names[] = {
 	[SORT_TYPE_MOST_RELEVANT] = "most relevant",
 	[SORT_TYPE_MOST_POPULAR] = "most popular",
@@ -47,6 +56,8 @@ static char search_text[100];
 static struct search_session* search_session;
 static struct search_context* search_context;
 
+static char* currently_playing_name;
+
 static char* error_message;
 static bool error_popup;
 
@@ -59,6 +70,13 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput,
 
 	(void)pDevice;
 	(void)pInput;
+}
+
+static void on_device_notification(const ma_device_notification* notification)
+{
+	if (notification->type != ma_device_notification_type_stopped) return;
+
+	currently_playing_name = NULL;
 }
 
 static bool play_result(struct search_item_data result)
@@ -77,6 +95,7 @@ static bool play_result(struct search_item_data result)
 	if (ma_device_start(&device) != MA_SUCCESS)
 		return false;
 
+	currently_playing_name = result.name;
 	return true;
 }
 
@@ -135,29 +154,50 @@ static void debug_rect_vector(ImVec2_c pos, ImVec2_c size, ImU32 color)
 	debug_rect(pos.x, pos.y, size.x, size.y, color);
 }
 
-static void center_cursor(float object_size_x, float object_size_y, float area_size_x, float area_size_y)
+static void align_cursor(enum align_type align, float object_size_x, float object_size_y, float area_size_x, float area_size_y)
 {
-	igSetCursorPosX(igGetCursorPosX() + (area_size_x - object_size_x) / 2);
-	igSetCursorPosY(igGetCursorPosY() + (area_size_y - object_size_y) / 2);
+	if (area_size_x < object_size_x || area_size_y < object_size_y) return;
+
+	if ((align & ALIGN_TYPE_LEFT) && (align & ALIGN_TYPE_RIGHT))
+		align &= ~(ALIGN_TYPE_LEFT | ALIGN_TYPE_RIGHT);
+	if ((align & ALIGN_TYPE_TOP) && (align & ALIGN_TYPE_BOTTOM))
+		align &= ~(ALIGN_TYPE_TOP | ALIGN_TYPE_BOTTOM);
+
+	if (align & ALIGN_TYPE_RIGHT)
+		igSetCursorPosX(igGetCursorPosX() + area_size_x - object_size_x);
+	else if (!(align & ALIGN_TYPE_LEFT))
+		igSetCursorPosX(igGetCursorPosX() + (area_size_x - object_size_x) / 2);
+
+	if (align & ALIGN_TYPE_BOTTOM)
+		igSetCursorPosY(igGetCursorPosY() + area_size_y - object_size_y);
+	else if (!(align & ALIGN_TYPE_TOP))
+		igSetCursorPosY(igGetCursorPosY() + (area_size_y - object_size_y) / 2);
 }
 
-static void text_box_truncated(char* text, float width, float height)
+static void text_box_truncated(char* text, float width, float height, enum align_type align)
 {
+	ImVec2_c pos = igGetCursorPos();
+
 	debug_rect(0, 0, width, height, color(255, 255, 255, 128));
 
 	ImVec2_c text_size = igCalcTextSize(text, NULL, false, false);
-	center_cursor(0, text_size.y, 0, height);
+	align_cursor(align, 0, text_size.y, 0, height);
 
 	debug_rect(0, 0, width > text_size.x ? text_size.x : width, text_size.y, color(255, 255, 255, 128));
 	igTextAligned(0, width, text);
+
+	igSetCursorPos(pos);
+	ImRect_c rect = {(ImVec2_c){pos.x, pos.y}, (ImVec2_c){width, height}};
+    igItemSize_Rect(rect, 0);
+	igItemAdd(rect, igGetID_Str(text), NULL, ImGuiItemFlags_None);
 }
 
-static void text_box(char* text, float width, float height)
+static void text_box(char* text, float width, float height, enum align_type align)
 {
 	debug_rect(0, 0, width, height, color(255, 255, 255, 128));
 
 	ImVec2_c text_size = igCalcTextSize(text, NULL, false, false);
-	center_cursor(text_size.x, text_size.y, width, height);
+	align_cursor(align, text_size.x, text_size.y, width, height);
 
 	debug_rect(0, 0, text_size.x, text_size.y, color(255, 255, 255, 128));
 	igText(text);
@@ -183,11 +223,12 @@ int main(void)
 		return EXIT_FAILURE;
 
 	ma_device_config device_config = ma_device_config_init(ma_device_type_playback);
-	device_config.playback.format   = ma_format_unknown;
-	device_config.playback.channels = 0;
-	device_config.sampleRate        = 0;
-	device_config.dataCallback      = data_callback;
-	device_config.pUserData         = NULL;
+	device_config.playback.format      = ma_format_unknown;
+	device_config.playback.channels    = 0;
+	device_config.sampleRate           = 0;
+	device_config.dataCallback         = data_callback;
+	device_config.pUserData            = NULL;
+	device_config.notificationCallback = on_device_notification;
 	if (ma_device_init(&context, &device_config, &device) != MA_SUCCESS)
 		return EXIT_FAILURE;
 
@@ -226,42 +267,32 @@ int main(void)
 	// Setup scaling
 	ImGuiStyle* style = igGetStyle();
 	ImGuiStyle_ScaleAllSizes(style, main_scale); // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
-	style->FontScaleDpi = main_scale; // Set initial font scale. (using io.ConfigDpiScaleFonts=true makes this unnecessary. We leave both here for documentation purpose)
+	style->FontScaleDpi = main_scale * 0.75; // Set initial font scale. (using io.ConfigDpiScaleFonts=true makes this unnecessary. We leave both here for documentation purpose)
 
 	// Setup Platform/Renderer backends
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init(glsl_version);
-
-	// Load Fonts
-	// - If fonts are not explicitly loaded, Dear ImGui will call AddFontDefault() to select an embedded font: either AddFontDefaultVector() or AddFontDefaultBitmap().
-	//   This selection is based on (style.FontSizeBase * style.FontScaleMain * style.FontScaleDpi) reaching a small threshold.
-	// - You can load multiple fonts and use igPushFont()/PopFont() to select them.
-	// - If a file cannot be loaded, AddFont functions will return a NULL. Please handle those errors in your code (e.g. use an assertion, display an error and quit).
-	// - Read 'docs/FONTS.md' for more instructions and details.
-	// - Use '#define IMGUI_ENABLE_FREETYPE' in your imconfig file to use FreeType for higher quality font rendering.
-	// - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
-
-	// - Our Emscripten build process allows embedding fonts to be accessible at runtime from the "fonts/" folder. See Makefile.emscripten for details.
 
 	char* fonts[] = {
 		"C:/Windows/Fonts/arial.ttf",
 		"/mnt/c/Windows/Fonts/arial.ttf",
 	};
 
-	ImFontConfig* font_config = ImFontConfig_ImFontConfig();
-	style->FontSizeBase = 22;
-
+	ImFont* normal_font = NULL;
 	for (int i = 0; i < COUNTOF(fonts); ++i)
 	{
 		if (!is_file_accessible(fonts[i], string_length(fonts[i]), true, false, false))
 			continue;
 
 		printf("found font %s\n", fonts[i]);
-		ImFontAtlas_AddFontFromFileTTF(io->Fonts, fonts[i], 100, font_config, NULL);
+
+		ImFontConfig* font_config = ImFontConfig_ImFontConfig();
+		normal_font = ImFontAtlas_AddFontFromFileTTF(io->Fonts, fonts[i], 22, font_config, NULL);
+		ImFontConfig_destroy(font_config);
 		break;
 	}
 
-	ImFontConfig_destroy(font_config);
+	// style->FontSizeBase = 22;
 
 	// igSetFontRasterizerDensity(10);
 
@@ -330,9 +361,12 @@ int main(void)
 				float spacing = 10;
 				float height = 50;
 				float button_size = 40;
-				float left_width = spacing + button_size;
-				float right_width = spacing + button_size;
-				float middle_width = full_width - spacing - left_width - right_width;
+				float play_column_width = spacing + button_size;
+				float download_column_width = spacing + button_size;
+				float time_column_width = spacing + 40;
+				float key_column_width = spacing + 60;
+				float bpm_column_width = spacing + 40;
+				float text_column_width = full_width - spacing - play_column_width - download_column_width - time_column_width - key_column_width - bpm_column_width;
 				{
 					int unique_id = 0;
 					for (int i = 0; i < search_session->pages_length; ++i)
@@ -346,24 +380,24 @@ int main(void)
 							igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
 							{
 								igSameLine(0, 0);
-								igBeginChild_Str("left_area", (ImVec2_c){left_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								igBeginChild_Str("play_button_column", (ImVec2_c){play_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(255, 0, 0, 255));
 								{
 									igSameLine(0, spacing);
-									center_cursor(0, button_size, 0, height);
-									if (igButton(">", (ImVec2_c){button_size, button_size}))
+									align_cursor(ALIGN_TYPE_CENTER, 0, button_size, 0, height);
+									if (igButton(result->data.name == currently_playing_name ? "l l" : ">", (ImVec2_c){button_size, button_size}))
 										if (!play_result(result->data))
 											open_error_popup("failed to play search result");
 								}
 								igEndChild();
 
 								igSameLine(0, 0);
-								igBeginChild_Str("middle_area", (ImVec2_c){middle_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								igBeginChild_Str("name_column", (ImVec2_c){text_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 255, 0, 255));
 								{
 									ImVec2_c pos = igGetCursorScreenPos();
 									if (result->data.file_on_disk &&
-										igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + middle_width, pos.y + height}, true))
+										igIsMouseHoveringRect(pos, (ImVec2_c){pos.x + text_column_width, pos.y + height}, true))
 									{
 										igSetMouseCursor(ImGuiMouseCursor_Hand);
 										if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
@@ -373,24 +407,71 @@ int main(void)
 										}
 									}
 
+									(void)text_box_truncated;
+
+									int tag_font_size = 18;
+									char* title = result->data.name;
+									char* tags = "drums  hip hop  cinematic  songstarters  percussion";
+									ImVec2_c title_size = igCalcTextSize(title, NULL, false, false);
+									igPushFont(normal_font, tag_font_size);
+									ImVec2_c tags_size = igCalcTextSize(tags, NULL, false, false);
+									igPopFont();
+
 									igSameLine(0, spacing);
-									text_box_truncated(result->data.name, middle_width - spacing, height);
+									align_cursor(ALIGN_TYPE_CENTER, 0, title_size.y + tags_size.y, 0, height);
+									struct ImVec2_c og_pos = igGetCursorPos();
+									igTextAligned(0, text_column_width - spacing, title);
+									igSetCursorPos(og_pos);
+									igSetCursorPosY(igGetCursorPosY() + title_size.y);
+
+									igPushFont(normal_font, tag_font_size);
+									igPushStyleColor_Vec4(ImGuiCol_Text, (ImVec4_c){0.8, 0.8, 0.8, 1});
+									igTextAligned(0, text_column_width - spacing, tags);
+									igPopStyleColor(1);
+									igPopFont();
 								}
 								igEndChild();
 
 								igSameLine(0, 0);
-								igBeginChild_Str("right_area", (ImVec2_c){right_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								igBeginChild_Str("time_column", (ImVec2_c){time_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
+								{
+									igSameLine(0, spacing);
+									text_box("0:00", time_column_width - spacing, height, ALIGN_TYPE_CENTER);
+								}
+								igEndChild();
+
+								igSameLine(0, 0);
+								igBeginChild_Str("key_column", (ImVec2_c){key_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
+								{
+									igSameLine(0, spacing);
+									text_box("A# min", key_column_width - spacing, height, ALIGN_TYPE_CENTER);
+								}
+								igEndChild();
+
+								igSameLine(0, 0);
+								igBeginChild_Str("bpm_column", (ImVec2_c){bpm_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
+								{
+									igSameLine(0, spacing);
+									text_box("100", bpm_column_width - spacing, height, ALIGN_TYPE_CENTER);
+								}
+								igEndChild();
+
+								igSameLine(0, 0);
+								igBeginChild_Str("download_button_column", (ImVec2_c){download_column_width, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_None);
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
 								{
 									igSameLine(0, spacing);
 									if (result->data.file_on_disk)
 									{
-										center_cursor(0, button_size, 0, height);
-										text_box("x", button_size, button_size);
+										align_cursor(ALIGN_TYPE_CENTER, 0, button_size, 0, height);
+										text_box("x", button_size, button_size, ALIGN_TYPE_CENTER);
 									}
 									else
 									{
-										center_cursor(0, button_size, 0, height);
+										align_cursor(ALIGN_TYPE_CENTER, 0, button_size, 0, height);
 										if (igButton("v", (ImVec2_c){button_size, button_size}))
 										{
 											if (!database_get_and_save(db, result->data.name, result->data.audio_url))
@@ -402,6 +483,7 @@ int main(void)
 									}
 								}
 								igEndChild();
+
 							}
 							igEndChild();
 							igPopStyleColor(1);
@@ -410,7 +492,7 @@ int main(void)
 					}
 
 					if (search_session->total_pages <= search_session->pages_length)
-						text_box("no more results", full_width, 50);
+						text_box("no more results", full_width, 50, ALIGN_TYPE_CENTER);
 					else if (igButton("load more", (ImVec2_c){full_width, 50}))
 						search_session_fetch_next_page(search_session);
 				}
