@@ -23,7 +23,25 @@
 
 #define DRAW_DEBUG 0
 
+enum sort_type
+{
+	SORT_TYPE_MOST_RELEVANT,
+	SORT_TYPE_MOST_POPULAR,
+	SORT_TYPE_MOST_RECENT,
+	SORT_TYPE_RANDOM,
+	SORT_TYPE_LENGTH,
+};
+
+static const char* sort_type_names[] = {
+	[SORT_TYPE_MOST_RELEVANT] = "most relevant",
+	[SORT_TYPE_MOST_POPULAR] = "most popular",
+	[SORT_TYPE_MOST_RECENT] = "most recent",
+	[SORT_TYPE_RANDOM] = "random",
+};
+
 static struct database* db;
+
+static enum sort_type selected_sort = SORT_TYPE_MOST_POPULAR;
 
 static char search_text[100];
 static struct search_session* search_session;
@@ -182,6 +200,7 @@ int main(void)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
 	//glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 
 	// Setup Dear ImGui context
@@ -280,9 +299,21 @@ int main(void)
 			igSetWindowSize_Vec2(window_size, ImGuiCond_None);
 			window_size = igGetWindowViewport()->WorkSize;
 
+			float full_width = igGetContentRegionAvail().x;
+
+			if (igBeginCombo("##sort_dropdown", sort_type_names[selected_sort], ImGuiComboFlags_None))
+			{
+				for (int i = 0; i < SORT_TYPE_LENGTH; ++i)
+				{
+					if (igSelectable_Bool(sort_type_names[i], selected_sort == i, ImGuiSelectableFlags_None, (ImVec2_c){0, 0}))
+						selected_sort = i;
+				}
+				igEndCombo();
+			}
+
 			if (first_frame)
 				igSetKeyboardFocusHere(0);
-			if (igInputText("search", search_text, COUNTOF(search_text), ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
+			if (igInputTextEx("##search_box", "search", search_text, COUNTOF(search_text), (ImVec2_c){full_width, 0}, ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
 			{
 				search_session_uninit(search_session);
 				if (!(search_session = search_session_init(search_context, (struct search_query){.search_string = search_text})) ||
