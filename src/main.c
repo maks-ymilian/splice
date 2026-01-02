@@ -297,8 +297,6 @@ int main(void)
 		if (!is_file_accessible(fonts[i], string_length(fonts[i]), true, false, false))
 			continue;
 
-		printf("found font %s\n", fonts[i]);
-
 		ImFontConfig* font_config = ImFontConfig_ImFontConfig();
 		normal_font = ImFontAtlas_AddFontFromFileTTF(io->Fonts, fonts[i], 22, font_config, NULL);
 		ImFontConfig_destroy(font_config);
@@ -390,6 +388,8 @@ int main(void)
 						{
 							struct search_item* result = &search_session->pages[i].items[j];
 
+							bool hovering_button = false;
+
 							igPushID_Int(++unique_id);
 							igPushStyleColor_Vec4(ImGuiCol_ChildBg, (ImVec4_c){0.1, 0.1, 0.1, 1});
 							igBeginChild_Str("result item", (ImVec2_c){0, height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollWithMouse);
@@ -403,6 +403,8 @@ int main(void)
 									if (igButton(result->data.name == currently_playing_name ? "l l" : ">", (ImVec2_c){button_size, button_size}))
 										if (!toggle_play(result->data))
 											open_error_popup("failed to play search result");
+									if (igIsItemHovered(ImGuiHoveredFlags_None))
+										hovering_button = true;
 								}
 								igEndChild();
 
@@ -483,21 +485,18 @@ int main(void)
 											if (!search_item_update(result))
 												open_error_popup("failed to update search result");
 										}
+										if (igIsItemHovered(ImGuiHoveredFlags_None))
+											hovering_button = true;
 									}
 								}
 								igEndChild();
 
+								bool hovered = false;
 								if (igIsWindowHovered(ImGuiHoveredFlags_ChildWindows))
 								{
-									ImVec2_c size = igGetWindowSize();
-									ImVec2_c min = igGetWindowPos();
-									ImVec2_c max = (ImVec2_c){min.x + size.x, min.y + size.y};
-									ImDrawList_AddRectFilled(igGetWindowDrawList(), min, max,
-										io->MouseDown[0]
-										? igGetColorU32_Vec4((ImVec4_c){0.2, 0.2, 0.2, 1})
-										: igGetColorU32_Vec4((ImVec4_c){0.17, 0.17, 0.17, 1}), 0, ImDrawFlags_None);
+									hovered = true;
 
-									if (result->data.file_on_disk)
+									if (result->data.file_on_disk && !hovering_button)
 										igSetMouseCursor(ImGuiMouseCursor_Hand);
 
 									if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
@@ -513,6 +512,17 @@ int main(void)
 								}
 								else if (currently_dragging_name == result->data.name)
 									mouse_left_dragging_item = true;
+
+								if (hovered || currently_dragging_name == result->data.name)
+								{
+									ImVec2_c size = igGetWindowSize();
+									ImVec2_c min = igGetWindowPos();
+									ImVec2_c max = (ImVec2_c){min.x + size.x, min.y + size.y};
+									ImDrawList_AddRectFilled(igGetWindowDrawList(), min, max,
+										io->MouseDown[0]
+										? igGetColorU32_Vec4((ImVec4_c){0.2, 0.2, 0.2, 1})
+										: igGetColorU32_Vec4((ImVec4_c){0.17, 0.17, 0.17, 1}), 0, ImDrawFlags_None);
+								}
 							}
 							igEndChild();
 							igPopStyleColor(1);
@@ -523,6 +533,7 @@ int main(void)
 							{
 								drag_drop_start(result->data.file_on_disk);
 								io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
+								currently_dragging_name = NULL;
 							}
 						}
 					}
@@ -558,8 +569,6 @@ int main(void)
 
 		if (!io->MouseDown[0])
 			currently_dragging_name = NULL;
-		if (currently_dragging_name)
-			printf("%s\n", currently_dragging_name ? currently_dragging_name : "none");
 
 		// Rendering
 		igRender();
