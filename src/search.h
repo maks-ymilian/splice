@@ -9,7 +9,13 @@ struct search_item_data
 	char* name;
 	char* name_full;
 	char* audio_url;
+	char* key;
+	char* chord_type;
+	char** tags;
 	char* file_on_disk;
+	int tags_length;
+	int bpm;
+	int duration;
 };
 
 struct search_query

@@ -33,6 +33,32 @@ void string_replace_char(char* string, int string_length, char find, char replac
 	}
 }
 
+bool string_concat(char* dest, int* dest_length, int dest_max_length, char* src, int src_length)
+{
+	if (!dest || !src || !dest_length || src_length < 0 || *dest_length < 0) return false;
+
+	if (*dest_length + src_length + 1 > dest_max_length) return false;
+
+	memcpy(dest + *dest_length, src, src_length);
+	dest[*dest_length + src_length] = '\0';
+	*dest_length += src_length;
+	return true;
+}
+
+void string_set_case(char* string, int string_length, bool uppercase)
+{
+	if (!string || string_length < 0) return;
+
+	for (int i = 0; i < string_length; ++i)
+	{
+		if (uppercase && string[i] >= 'a' && string[i] <= 'z')
+			string[i] -= 32;
+
+		if (!uppercase && string[i] >= 'A' && string[i] <= 'Z')
+			string[i] += 32;
+	}
+}
+
 bool copy_buffer(struct buffer from, struct buffer* to)
 {
 	if (!to || !from.data) return false;

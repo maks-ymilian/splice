@@ -24,18 +24,6 @@
 #error "os not supported"
 #endif
 
-static bool file_string_concat(file_string a, int* a_length, char* b, int b_length)
-{
-	if (!a || !b || !a_length || b_length < 0 || *a_length < 0) return false;
-
-	if (*a_length + b_length + 1 > COUNTOF(file_string)) return false;
-
-	memcpy(a + *a_length, b, b_length);
-	a[*a_length + b_length] = '\0';
-	*a_length += b_length;
-	return true;
-}
-
 bool file_string_copy(char* string, int string_length, file_string out)
 {
 	if (!string || !out || string_length < 0) return false;
@@ -171,8 +159,8 @@ bool set_file_extension(char* path, int path_length, char* extension, int extens
 
 	*out_length = path_length;
 	if (!file_string_copy(path, path_length, out) ||
-		!file_string_concat(out, out_length, ".", 1) ||
-		!file_string_concat(out, out_length, extension, extension_length)) return false;
+		!string_concat(out, out_length, COUNTOF(file_string), ".", 1) ||
+		!string_concat(out, out_length, COUNTOF(file_string), extension, extension_length)) return false;
 	return true;
 }
 
@@ -283,9 +271,9 @@ bool join_paths(char* path, int path_length, char* join, int join_length, file_s
 
 	if (*out_length != 0 && out[*out_length - 1] != '/')
 	{
-		if (!file_string_concat(out, out_length, "/", 1)) return false;
+		if (!string_concat(out, out_length, COUNTOF(file_string), "/", 1)) return false;
 	}
-	if (!file_string_concat(out, out_length, join, join_length)) return false;
+	if (!string_concat(out, out_length, COUNTOF(file_string), join, join_length)) return false;
 	return true;
 }
 

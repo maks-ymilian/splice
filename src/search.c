@@ -110,6 +110,12 @@ void search_session_uninit(struct search_session* session)
 					free(item.data.name_full);
 					free(item.data.audio_url);
 					free(item.data.file_on_disk);
+					free(item.data.key);
+					free(item.data.chord_type);
+
+					for (int i = 0; i < item.data.tags_length; ++i)
+						free(item.data.tags[i]);
+					free(item.data.tags);
 				}
 				free(page.items);
 			}
@@ -188,14 +194,42 @@ bool search_session_fetch_next_page(struct search_session* session)
 	{
 		cJSON* item_json = cJSON_GetArrayItem(items, i);
 		if (!cJSON_IsObject(item_json)) goto cleanup;
+
 		cJSON* name_json = cJSON_GetObjectItemCaseSensitive(item_json, "name");
 		if (!cJSON_IsString(name_json)) goto cleanup;
+		cJSON* bpm_json = cJSON_GetObjectItemCaseSensitive(item_json, "bpm");
+		cJSON* key_json = cJSON_GetObjectItemCaseSensitive(item_json, "key");
+		cJSON* chord_type_json = cJSON_GetObjectItemCaseSensitive(item_json, "chord_type");
+		cJSON* duration_json = cJSON_GetObjectItemCaseSensitive(item_json, "duration");
+		cJSON* tags_json = cJSON_GetObjectItemCaseSensitive(item_json, "tags");
+
 		cJSON* files_json = cJSON_GetObjectItemCaseSensitive(item_json, "files");
 		if (!cJSON_IsArray(files_json) || cJSON_GetArraySize(files_json) < 1) goto cleanup;
 		cJSON* audio_json = cJSON_GetArrayItem(files_json, 0);
 		if (!cJSON_IsObject(audio_json)) goto cleanup;
 		cJSON* url_json = cJSON_GetObjectItemCaseSensitive(audio_json, "url");
 		if (!cJSON_IsString(url_json)) goto cleanup;
+
+		char** tags = NULL;
+		int tags_length = 0;
+		if (cJSON_IsArray(tags_json))
+		{
+			tags_length = cJSON_GetArraySize(tags_json);
+			tags = malloc(tags_length * sizeof(*tags));
+			for (int i = 0; i < tags_length; ++i)
+			{
+				cJSON* item = cJSON_GetArrayItem(tags_json, i);
+				if (!cJSON_IsObject(item)) goto exit_tags;
+				cJSON* label_json = cJSON_GetObjectItemCaseSensitive(item, "label");
+				if (!cJSON_IsString(label_json)) goto exit_tags;
+
+				tags[i] = string_alloc(label_json->valuestring, string_length(label_json->valuestring));
+				if (!tags[i]) goto exit_tags;
+				continue;
+exit_tags:
+				tags_length = 0;
+			}
+		}
 
 		bool has_file_name;
 		file_string short_name;
@@ -204,8 +238,16 @@ bool search_session_fetch_next_page(struct search_session* session)
 		char* name = string_alloc(short_name, short_name_length);
 		char* name_full = string_alloc(name_json->valuestring, string_length(name_json->valuestring));
 		char* audio_url = string_alloc(url_json->valuestring, string_length(url_json->valuestring));
-
 		if (!name || !name_full || !audio_url) goto cleanup;
+
+		int bpm = -1;
+		char* key = NULL;
+		char* chord_type = NULL;
+		int duration = -1;
+		if (cJSON_IsNumber(bpm_json)) bpm = bpm_json->valueint;
+		if (cJSON_IsString(key_json)) key = string_alloc(key_json->valuestring, string_length(key_json->valuestring));
+		if (cJSON_IsString(chord_type_json)) chord_type = string_alloc(chord_type_json->valuestring, string_length(chord_type_json->valuestring));
+		if (cJSON_IsNumber(duration_json)) duration = duration_json->valueint;
 
 		curr_page->items[i] = (struct search_item){
 			.session = session,
@@ -213,6 +255,12 @@ bool search_session_fetch_next_page(struct search_session* session)
 				.name = name,
 				.name_full = name_full,
 				.audio_url = audio_url,
+				.bpm = bpm,
+				.key = key,
+				.chord_type = chord_type,
+				.duration = duration,
+				.tags = tags,
+				.tags_length = tags_length,
 			},
 		};
 		search_item_update(&curr_page->items[i]);

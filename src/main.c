@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -254,7 +255,7 @@ int main(void)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
+	// glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
 	//glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 
 	// Setup Dear ImGui context
@@ -416,10 +417,24 @@ int main(void)
 
 									int tag_font_size = 18;
 									char* title = result->data.name;
-									char* tags = "drums  hip hop  cinematic  songstarters  percussion";
+									char tags[64] = {0};
+									if (result->data.tags_length > 0 && result->data.tags)
+									{
+										int tags_length = 0;
+										for (int i = 0; i < result->data.tags_length; ++i)
+										{
+											if (!string_concat(tags, &tags_length, COUNTOF(tags), result->data.tags[i], string_length(result->data.tags[i])) ||
+												i < result->data.tags_length - 1 ? !string_concat(tags, &tags_length, COUNTOF(tags), "  ", 2) : false)
+											{
+												tags[0] = 0;
+												break;
+											}
+										}
+									}
+
 									ImVec2_c title_size = igCalcTextSize(title, NULL, false, false);
 									igPushFont(normal_font, tag_font_size);
-									ImVec2_c tags_size = igCalcTextSize(tags, NULL, false, false);
+									ImVec2_c tags_size = tags[0] == 0 ? (ImVec2_c){0} : igCalcTextSize(tags, NULL, false, false);
 									igPopFont();
 
 									igSameLine(0, spacing);
@@ -442,7 +457,23 @@ int main(void)
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
 								{
 									igSameLine(0, spacing);
-									text_box("0:00", time_column_width - spacing, height, ALIGN_TYPE_CENTER);
+
+									char main_string[32];
+									int main_length = 0;
+									char seconds_string[32];
+									int seconds_length = 0;
+
+									int duration_seconds = (result->data.duration % 1000) >= 500 ? (result->data.duration / 1000 + 1) : (result->data.duration / 1000);
+									int minutes = duration_seconds / 60;
+									int seconds = duration_seconds % 60;
+									if (result->data.duration <= 0 ||
+										(main_length = snprintf(main_string, COUNTOF(main_string), "%d", minutes)) <= 0 ||
+										(seconds_length = snprintf(seconds_string, COUNTOF(seconds_string), "%02d", seconds)) <= 0 ||
+										!string_concat(main_string, &main_length, COUNTOF(main_string), ":", 1) ||
+										!string_concat(main_string, &main_length, COUNTOF(main_string), seconds_string, seconds_length))
+										text_box("-", time_column_width - spacing, height, ALIGN_TYPE_CENTER);
+									else
+										text_box(main_string, time_column_width - spacing, height, ALIGN_TYPE_CENTER);
 								}
 								igEndChild();
 
@@ -451,7 +482,19 @@ int main(void)
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
 								{
 									igSameLine(0, spacing);
-									text_box("A# min", key_column_width - spacing, height, ALIGN_TYPE_CENTER);
+
+									char string[32];
+									int length = 0;
+									int chord_type_length = string_length(result->data.chord_type);
+									if (chord_type_length > 3) chord_type_length = 3;
+
+									if (!string_concat(string, &length, COUNTOF(string), result->data.key, string_length(result->data.key)) ||
+										(string_set_case(string, length, true), 0) ||
+										!string_concat(string, &length, COUNTOF(string), " ", 1) ||
+										!string_concat(string, &length, COUNTOF(string), result->data.chord_type, chord_type_length))
+										text_box("-", key_column_width - spacing, height, ALIGN_TYPE_CENTER);
+									else
+										text_box(string, key_column_width - spacing, height, ALIGN_TYPE_CENTER);
 								}
 								igEndChild();
 
@@ -460,7 +503,12 @@ int main(void)
 								debug_rect_vector((ImVec2_c){0}, igGetContentRegionAvail(), color(0, 0, 255, 255));
 								{
 									igSameLine(0, spacing);
-									text_box("100", bpm_column_width - spacing, height, ALIGN_TYPE_CENTER);
+
+									char string[32];
+									if (result->data.bpm <= 0 || snprintf(string, COUNTOF(string), "%d", result->data.bpm) <= 0)
+										text_box("-", bpm_column_width - spacing, height, ALIGN_TYPE_CENTER);
+									else
+										text_box(string, bpm_column_width - spacing, height, ALIGN_TYPE_CENTER);
 								}
 								igEndChild();
 
