@@ -64,6 +64,7 @@ static bool error_popup;
 
 static ma_device device;
 static ma_decoder decoder;
+static ma_uint64 decoder_length;
 
 static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
@@ -73,11 +74,9 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* pInput,
 	ma_decoder_read_pcm_frames(&decoder, pOutput, frameCount, NULL);
 
 	ma_uint64 cursor;
-	ma_uint64 length;
-	if (ma_decoder_get_cursor_in_pcm_frames(&decoder, &cursor) ||
-		ma_decoder_get_length_in_pcm_frames(&decoder, &length)) return;
+	if (ma_decoder_get_cursor_in_pcm_frames(&decoder, &cursor)) return;
 
-	if (cursor >= length)
+	if (cursor >= decoder_length)
 		currently_playing_name = NULL;
 }
 
@@ -98,16 +97,13 @@ static bool toggle_play(struct search_item_data result)
 	ma_device_stop(&device);
 
 	struct buffer audio;
-	if (!database_get(db, result.name, result.audio_url, &audio))
-		return false;
+	if (!database_get(db, result.name, result.audio_url, &audio)) return false;
 
 	ma_decoder_uninit(&decoder);
 	ma_decoder_config decoder_config = ma_decoder_config_init(device.playback.format, device.playback.channels, device.sampleRate);
-	if (ma_decoder_init_memory(audio.data, audio.length, &decoder_config, &decoder) != MA_SUCCESS)
-		return false;
-
-	if (ma_device_start(&device) != MA_SUCCESS)
-		return false;
+	if (ma_decoder_init_memory(audio.data, audio.length, &decoder_config, &decoder) != MA_SUCCESS) return false;
+	if (ma_decoder_get_length_in_pcm_frames(&decoder, &decoder_length)) return false;
+	if (ma_device_start(&device) != MA_SUCCESS) return false;
 
 	currently_playing_name = result.name;
 	return true;
@@ -441,14 +437,17 @@ int main(void)
 									align_cursor(ALIGN_TYPE_CENTER, 0, title_size.y + tags_size.y, 0, height);
 									struct ImVec2_c og_pos = igGetCursorPos();
 									igTextAligned(0, text_column_width - spacing, title);
-									igSetCursorPos(og_pos);
-									igSetCursorPosY(igGetCursorPosY() + title_size.y);
 
-									igPushFont(normal_font, tag_font_size);
-									igPushStyleColor_Vec4(ImGuiCol_Text, (ImVec4_c){0.8, 0.8, 0.8, 1});
-									igTextAligned(0, text_column_width - spacing, tags);
-									igPopStyleColor(1);
-									igPopFont();
+									if (tags[0] != 0)
+									{
+										igSetCursorPos(og_pos);
+										igSetCursorPosY(igGetCursorPosY() + title_size.y);
+										igPushFont(normal_font, tag_font_size);
+										igPushStyleColor_Vec4(ImGuiCol_Text, (ImVec4_c){0.8, 0.8, 0.8, 1});
+										igTextAligned(0, text_column_width - spacing, tags);
+										igPopStyleColor(1);
+										igPopFont();
+									}
 								}
 								igEndChild();
 
