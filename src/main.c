@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -53,7 +52,6 @@ static struct database* db;
 
 static enum sort_type selected_sort = SORT_TYPE_MOST_POPULAR;
 
-static char search_text[100];
 static struct search_session* search_session;
 static struct search_context* search_context;
 
@@ -326,6 +324,9 @@ int main(void)
 		ImGui_ImplGlfw_NewFrame();
 		igNewFrame();
 
+		char search_text[100];
+		char tags_text[100];
+
 		igBegin("main window", NULL, 
 			ImGuiWindowFlags_NoTitleBar |
 			ImGuiWindowFlags_NoResize |
@@ -340,14 +341,49 @@ int main(void)
 
 			float full_width = igGetContentRegionAvail().x;
 
-			if (igBeginCombo("##sort_dropdown", sort_type_names[selected_sort], ImGuiComboFlags_None))
+			int num_columns = 4;
+			float spacing = igGetCursorPosX();
+			float column_width = (float)full_width / num_columns;
 			{
-				for (int i = 0; i < SORT_TYPE_LENGTH; ++i)
+				igSameLine(0, 0);
+				igSetNextItemWidth(column_width - spacing);
+				if (igBeginCombo("##key_dropdown", "key", ImGuiComboFlags_None))
 				{
-					if (igSelectable_Bool(sort_type_names[i], selected_sort == i, ImGuiSelectableFlags_None, (ImVec2_c){0, 0}))
-						selected_sort = i;
+					igEndCombo();
 				}
-				igEndCombo();
+			}
+			{
+				igSameLine(0, spacing);
+				igSetNextItemWidth(column_width - spacing);
+				if (igBeginCombo("##bpm_dropdown", "bpm", ImGuiComboFlags_None))
+				{
+					igEndCombo();
+				}
+			}
+			{
+				igSameLine(0, spacing);
+				igSetNextItemWidth(column_width - spacing);
+				if (igBeginCombo("##type_dropdown", "one shots & loops", ImGuiComboFlags_None))
+				{
+					igEndCombo();
+				}
+			}
+			{
+				igSameLine(0, spacing);
+				igSetNextItemWidth(column_width);
+				if (igBeginCombo("##sort_dropdown", sort_type_names[selected_sort], ImGuiComboFlags_None))
+				{
+					for (int i = 0; i < SORT_TYPE_LENGTH; ++i)
+					{
+						if (igSelectable_Bool(sort_type_names[i], selected_sort == i, ImGuiSelectableFlags_None, (ImVec2_c){0, 0}))
+							selected_sort = i;
+					}
+					igEndCombo();
+				}
+			}
+
+			if (igInputTextEx("##tags_box", "tags", tags_text, COUNTOF(tags_text), (ImVec2_c){full_width, 0}, ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
+			{
 			}
 
 			if (first_frame)
@@ -417,8 +453,10 @@ int main(void)
 										int tags_length = 0;
 										for (int i = 0; i < result->data.tags_length; ++i)
 										{
-											if (!string_concat(tags, &tags_length, COUNTOF(tags), result->data.tags[i], string_length(result->data.tags[i])) ||
-												i < result->data.tags_length - 1 ? !string_concat(tags, &tags_length, COUNTOF(tags), "  ", 2) : false)
+											// if (!string_concat(tags, &tags_length, COUNTOF(tags), result->data.tags[i], string_length(result->data.tags[i])) ||
+											// 	i < result->data.tags_length - 1 ? !string_concat(tags, &tags_length, COUNTOF(tags), "  ", 2) : false)
+											if (!string_concat(tags, &tags_length, COUNTOF(tags), "  ", 2) ||
+												!string_concat(tags, &tags_length, COUNTOF(tags), result->data.tags[i], string_length(result->data.tags[i])))
 											{
 												tags[0] = 0;
 												break;
