@@ -166,8 +166,6 @@ static void debug_rect_vector(ImVec2_c pos, ImVec2_c size, ImU32 color)
 
 static void align_cursor(enum align_type align, float object_size_x, float object_size_y, float area_size_x, float area_size_y)
 {
-	if (area_size_x < object_size_x || area_size_y < object_size_y) return;
-
 	if ((align & ALIGN_TYPE_LEFT) && (align & ALIGN_TYPE_RIGHT))
 		align &= ~(ALIGN_TYPE_LEFT | ALIGN_TYPE_RIGHT);
 	if ((align & ALIGN_TYPE_TOP) && (align & ALIGN_TYPE_BOTTOM))
@@ -578,7 +576,7 @@ int main(void)
 								igIsMouseDragPastThreshold(ImGuiMouseButton_Left, 50))
 							{
 								if (!database_get_and_save(db, result->data.name, result->data.audio_url) ||
-									!search_item_update(result) || result->data.file_on_disk)
+									!search_item_update(result) || !result->data.file_on_disk)
 									open_error_popup("failed to save file or update ui or somethign");
 								else
 								{
