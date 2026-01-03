@@ -542,7 +542,7 @@ int main(void)
 								{
 									hovered = true;
 
-									if (result->data.file_on_disk && !hovering_button)
+									if (!hovering_button)
 										igSetMouseCursor(ImGuiMouseCursor_Hand);
 
 									if (igIsMouseClicked_Bool(ImGuiMouseButton_Left, false))
@@ -574,10 +574,10 @@ int main(void)
 							igPopStyleColor(1);
 							igPopID();
 
-							if (currently_dragging_name == result->data.name && result->data.file_on_disk &&
+							if (currently_dragging_name == result->data.name &&
 								igIsMouseDragPastThreshold(ImGuiMouseButton_Left, 50))
 							{
-								if (!database_get_and_save(db, result->data.name, result->data.audio_url))
+								if (!database_get_and_save(db, result->data.name, result->data.audio_url) || !result->data.file_on_disk)
 									open_error_popup("failed to save file");
 								else
 								{
