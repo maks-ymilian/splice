@@ -52,6 +52,8 @@ static struct database* db;
 
 static enum sort_type selected_sort = SORT_TYPE_MOST_POPULAR;
 
+static char search_text[100];
+static char tags_text[100];
 static struct search_session* search_session;
 static struct search_context* search_context;
 
@@ -323,9 +325,6 @@ int main(void)
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		igNewFrame();
-
-		char search_text[100];
-		char tags_text[100];
 
 		igBegin("main window", NULL, 
 			ImGuiWindowFlags_NoTitleBar |
