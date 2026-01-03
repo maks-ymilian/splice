@@ -577,13 +577,11 @@ int main(void)
 							if (currently_dragging_name == result->data.name &&
 								igIsMouseDragPastThreshold(ImGuiMouseButton_Left, 50))
 							{
-								if (!database_get_and_save(db, result->data.name, result->data.audio_url) || !result->data.file_on_disk)
-									open_error_popup("failed to save file");
+								if (!database_get_and_save(db, result->data.name, result->data.audio_url) ||
+									!search_item_update(result) || result->data.file_on_disk)
+									open_error_popup("failed to save file or update ui or somethign");
 								else
 								{
-									if (!search_item_update(result))
-										open_error_popup("failed to update search result");
-
 									drag_drop_start(result->data.file_on_disk);
 									io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
 									currently_dragging_name = NULL;
