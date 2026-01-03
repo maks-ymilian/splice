@@ -189,7 +189,10 @@ bool database_get_and_save(struct database* db, char* file, char* url)
 	if (!db || !file || !url) return false;
 
 	bool exists;
-	if (!database_get_file_path(db, file, &exists, NULL, NULL) || exists) return false;
+	if (!database_get_file_path(db, file, &exists, NULL, NULL)) return false;
+
+	if (exists)
+		return true;
 
 	struct buffer buffer;
 	if (!database_get(db, file, url, &buffer)) return false;

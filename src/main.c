@@ -264,7 +264,7 @@ int main(void)
 
 	// Create window with graphics context
 	float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
-	GLFWwindow* window = glfwCreateWindow((int)(480 * main_scale), (int)(720 * main_scale), "Samples", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow((int)(580 * main_scale), (int)(720 * main_scale), "Samples", NULL, NULL);
 	if (window == NULL)
 		return 1;
 	glfwMakeContextCurrent(window);
@@ -411,7 +411,7 @@ int main(void)
 								{
 									(void)text_box_truncated;
 
-									int tag_font_size = 18;
+									int tag_font_size = 17;
 									char* title = result->data.name;
 									char tags[64] = {0};
 									if (result->data.tags_length > 0 && result->data.tags)
@@ -528,7 +528,6 @@ int main(void)
 										{
 											if (!database_get_and_save(db, result->data.name, result->data.audio_url))
 												open_error_popup("failed to save file");
-
 											if (!search_item_update(result))
 												open_error_popup("failed to update search result");
 										}
@@ -578,9 +577,17 @@ int main(void)
 							if (currently_dragging_name == result->data.name && result->data.file_on_disk &&
 								igIsMouseDragPastThreshold(ImGuiMouseButton_Left, 50))
 							{
-								drag_drop_start(result->data.file_on_disk);
-								io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
-								currently_dragging_name = NULL;
+								if (!database_get_and_save(db, result->data.name, result->data.audio_url))
+									open_error_popup("failed to save file");
+								else
+								{
+									if (!search_item_update(result))
+										open_error_popup("failed to update search result");
+
+									drag_drop_start(result->data.file_on_disk);
+									io->MouseDown[0] = false; // the drag drop function blocks and steals the mouse up event so it must be set manually
+									currently_dragging_name = NULL;
+								}
 							}
 						}
 					}
