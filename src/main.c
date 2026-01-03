@@ -371,8 +371,8 @@ int main(void)
 				float button_size = 40;
 				float play_column_width = spacing + button_size;
 				float download_column_width = spacing + button_size;
-				float time_column_width = spacing + 40;
-				float key_column_width = spacing + 60;
+				float time_column_width = spacing + 45;
+				float key_column_width = spacing + 65;
 				float bpm_column_width = spacing + 40;
 				float text_column_width = full_width - spacing - play_column_width - download_column_width - time_column_width - key_column_width - bpm_column_width;
 				{
