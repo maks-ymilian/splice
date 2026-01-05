@@ -397,13 +397,13 @@ int main(void)
 		// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
 
 		glfwPollEvents();
-		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
+		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED))
 		{
 			stop_playback();
 			ImGui_ImplGlfw_Sleep(10);
 			continue;
 		}
-		if (glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0)
+		if (!glfwGetWindowAttrib(window, GLFW_FOCUSED))
 			stop_playback();
 
 		// Start the Dear ImGui frame
