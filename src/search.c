@@ -243,6 +243,16 @@ bool search_session_fetch_next_page(struct search_session* session)
 
 	response_json = cJSON_ParseWithLength(response.data, response.length);
 	if (!cJSON_IsObject(response_json)) goto cleanup;
+
+	cJSON* errors = cJSON_GetObjectItemCaseSensitive(response_json, "errors");
+	if (!errors)
+	{
+		char* json = cJSON_Print(response_json);
+		printf("%s", json);
+		free(json);
+		goto cleanup;
+	}
+
 	cJSON* data = cJSON_GetObjectItemCaseSensitive(response_json, "data");
 	if (!cJSON_IsObject(data)) goto cleanup;
 	cJSON* assets_search = cJSON_GetObjectItemCaseSensitive(data, "assetsSearch");
