@@ -115,6 +115,12 @@ static void on_device_notification(const ma_device_notification* notification)
 	currently_playing_name = NULL;
 }
 
+static void stop_playback(void)
+{
+	if (currently_playing_name) ma_device_stop(&device);
+	currently_playing_name = NULL;
+}
+
 static bool toggle_play(struct search_item_data result)
 {
 	if (currently_playing_name == result.name)
@@ -338,7 +344,7 @@ int main(void)
 
 	// Create window with graphics context
 	float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
-	GLFWwindow* window = glfwCreateWindow((int)(580 * main_scale), (int)(720 * main_scale), "Samples", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow((int)(580 * main_scale), (int)(580 * main_scale), "Samples", NULL, NULL);
 	if (window == NULL)
 		return 1;
 	glfwMakeContextCurrent(window);
@@ -393,12 +399,12 @@ int main(void)
 		glfwPollEvents();
 		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 		{
-			ma_device_stop(&device);
+			stop_playback();
 			ImGui_ImplGlfw_Sleep(10);
 			continue;
 		}
 		if (glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0)
-			ma_device_stop(&device);
+			stop_playback();
 
 		// Start the Dear ImGui frame
 		ImGui_ImplOpenGL3_NewFrame();
