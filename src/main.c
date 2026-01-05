@@ -393,6 +393,7 @@ int main(void)
 		glfwPollEvents();
 		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 		{
+			printf("mini\n");
 			ImGui_ImplGlfw_Sleep(10);
 			continue;
 		}
@@ -545,7 +546,20 @@ int main(void)
 
 					float full_width = igGetContentRegionAvail().x;
 
+					if (igButton("clear", (ImVec2_c){0}))
+					{
+						for (int i = 0; i < tags_length; ++i)
+						{
+							free(tags[i].name);
+							free(tags[i].uuid);
+						}
+						free(tags);
+						tags = NULL;
+						tags_length = 0;
+					}
+
 					igSeparator();
+					igText("applied tags:");
 
 					igPushID_Str("applied_tags");
 					for (int i = 0; i < tags_length && tags; ++i)
@@ -564,7 +578,11 @@ int main(void)
 						igPopID();
 					}
 					igPopID();
+					if (tags_length == 0)
+						igText("none");
 
+					igSeparator();
+					igText("available tags:");
 					igPushID_Str("tag_summary");
 					float spacing = igGetCursorPosX();
 					if (search_session && search_session->tag_summary)
@@ -619,20 +637,9 @@ int main(void)
 						}
 						igNewLine();
 					}
+					else
+						igText("search to see a list of tags");
 					igPopID();
-					igSeparator();
-
-					if (igButton("clear", (ImVec2_c){0}))
-					{
-						for (int i = 0; i < tags_length; ++i)
-						{
-							free(tags[i].name);
-							free(tags[i].uuid);
-						}
-						free(tags);
-						tags = NULL;
-						tags_length = 0;
-					}
 
 					igEndCombo();
 				}
