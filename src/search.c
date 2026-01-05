@@ -224,6 +224,15 @@ void search_session_uninit(struct search_session* session)
 		}
 		free(session->pages);
 	}
+	if (session->tag_summary)
+	{
+		for (int i = 0; i < session->tag_summary_length; ++i)
+		{
+			free(session->tag_summary[i].name);
+			free(session->tag_summary[i].uuid);
+		}
+		free(session->tag_summary);
+	}
 
 	free(session);
 }
@@ -243,6 +252,7 @@ bool search_session_fetch_next_page(struct search_session* session)
 	cJSON* response_json = NULL;
 	cJSON* search_body_json = NULL;
 	char* search_body = NULL;
+	struct search_tag* tag_summary = NULL;
 	bool success = false;
 
 	list_request = curl_easy_init();
@@ -291,6 +301,27 @@ bool search_session_fetch_next_page(struct search_session* session)
 	cJSON* total_pages = cJSON_GetObjectItemCaseSensitive(pagination_metadata, "totalPages");
 	if (!cJSON_IsNumber(total_pages)) goto cleanup;
 	session->total_pages = total_pages->valueint;
+
+	cJSON* tag_summary_json = cJSON_GetObjectItemCaseSensitive(assets_search, "tag_summary");
+	if (!cJSON_IsArray(tag_summary_json)) goto cleanup;
+	int tag_summary_json_length = cJSON_GetArraySize(tag_summary_json);
+	for (int i = 0; i < tag_summary_json_length; ++i)
+	{
+		cJSON* item = cJSON_GetArrayItem(tag_summary_json, i);
+		if (!cJSON_IsObject(item)) goto cleanup;
+
+		cJSON* label = cJSON_GetObjectItemCaseSensitive(item, "label");
+		if (!cJSON_IsString(label)) goto cleanup;
+		cJSON* uuid = cJSON_GetObjectItemCaseSensitive(item, "uuid");
+		if (!cJSON_IsString(uuid)) goto cleanup;
+
+		char* label_string = string_alloc(label->valuestring, string_length(label->valuestring));
+		char* uuid_string = string_alloc(uuid->valuestring, string_length(uuid->valuestring));
+		tag_summary = realloc(tag_summary, (i + 1) * sizeof(*tag_summary));
+		if (!label_string || !uuid_string || !tag_summary) goto cleanup;
+		tag_summary[i] = (struct search_tag){ .name = label_string, .uuid = uuid_string,
+		};
+	}
 
 	// char* file_name = "response.json";
 	// char* response_string = cJSON_Print(response_json);
@@ -381,6 +412,7 @@ exit_tags:
 	success = true;
 
 cleanup:
+	free(tag_summary);
 	free(response.data);
 	free(search_body);
 	cJSON_Delete(response_json);

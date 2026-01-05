@@ -106,11 +106,19 @@ struct search_page
 	int items_length;
 };
 
+struct search_tag
+{
+	char* name;
+	char* uuid;
+};
+
 struct search_session
 {
 	struct search_context* context;
 	struct search_query query;
 	struct search_page* pages;
+	struct search_tag* tag_summary;
+	int tag_summary_length;
 	int pages_length;
 	int total_pages;
 };

@@ -477,7 +477,7 @@ int main(void)
 				igSetNextItemWidth(column_width - column_spacing);
 				if (igBeginCombo("##tags_dropdown", "tags", ImGuiComboFlags_HeightLargest))
 				{
-					float width = igGetContentRegionAvail().x;
+					// float width = igGetContentRegionAvail().x;
 
 					if (igInputTextEx("##tags_box", "tag", tags_text, COUNTOF(tags_text), (ImVec2_c){200, 0}, ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
 					{
@@ -505,27 +505,36 @@ int main(void)
 					}
 
 					bool clear = false;
-					for (int i = 0; i < tags_length && tags; ++i)
+					if (search_session && search_session->tag_summary)
 					{
-						if (tags[i] == NULL)
+						for (int i = 0; i < search_session->tag_summary_length; ++i)
 						{
-							open_error_popup("tag epic fail");
-							clear = true;
-							break;
+							igPushID_Int(i);
+							igButton(search_session->tag_summary[i].name, (ImVec2_c){0});
+							igPopID();
 						}
-
-						igPushID_Int(i);
-						if (igButton(tags[i], (ImVec2_c){width, 0}))
-						{
-							free(tags[i]);
-							if (i != tags_length - 1)
-								memmove(tags + i, tags + i + 1, (tags_length - i - 1) * sizeof(*tags));
-
-							--tags_length;
-							--i;
-						}
-						igPopID();
 					}
+					// for (int i = 0; i < tags_length && tags; ++i)
+					// {
+					// 	if (tags[i] == NULL)
+					// 	{
+					// 		open_error_popup("tag epic fail");
+					// 		clear = true;
+					// 		break;
+					// 	}
+					//
+					// 	igPushID_Int(i);
+					// 	if (igButton(tags[i], (ImVec2_c){width, 0}))
+					// 	{
+					// 		free(tags[i]);
+					// 		if (i != tags_length - 1)
+					// 			memmove(tags + i, tags + i + 1, (tags_length - i - 1) * sizeof(*tags));
+					//
+					// 		--tags_length;
+					// 		--i;
+					// 	}
+					// 	igPopID();
+					// }
 
 					if (clear || igButton("clear", (ImVec2_c){0}))
 					{
@@ -687,7 +696,7 @@ int main(void)
 
 									int tag_font_size = 17;
 									char* title = result->data.name;
-									char tags[64] = {0};
+									char tags[256] = {0};
 									if (result->data.tags_length > 0 && result->data.tags)
 									{
 										int tags_length = 0;
