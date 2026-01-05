@@ -249,18 +249,15 @@ void drag_drop_start(char* file_path)
 
 void drag_drop_init(void)
 {
-    printf("drag drop not implemented\n");
 }
 
 void drag_drop_uninit(void)
 {
-    printf("drag drop not implemented\n");
 }
 
 void drag_drop_start(char* file_path)
 {
 	(void)file_path;
-    printf("drag drop not implemented\n");
 }
 
 #endif

@@ -32,7 +32,14 @@ static cJSON* build_search_body(struct search_query query, int max_results_per_p
 	{
 		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_TAGS)
 		{
-			if (!cJSON_AddArrayToObject(variables, "tags")) goto error;
+			cJSON* tags = NULL;
+			if (!(tags = cJSON_AddArrayToObject(variables, "tags"))) goto error;
+			for (int i = 0; i < query.tags.length; ++i)
+			{
+				cJSON* string = NULL;
+				if (!(string = cJSON_CreateString(query.tags.tags[i]))) goto error;
+				if (!cJSON_AddItemToArray(tags, string)) goto error;
+			}
 		}
 		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_BPM)
 		{
@@ -164,6 +171,7 @@ struct search_session* search_session_init(struct search_context* context, struc
 		if (!(new_query.tags.tags = malloc(query.tags.length * sizeof(*query.tags.tags)))) goto error;
 		for (int i = 0; i < query.tags.length; ++i)
 			if (!(new_query.tags.tags[i] = string_alloc(query.tags.tags[i], string_length(query.tags.tags[i])))) goto error;
+		new_query.tags.length = query.tags.length;
 	}
 	if (query.used_parameters & SEARCH_QUERY_PARAMETERS_BPM)         new_query.bpm_range = query.bpm_range;
 	if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SORT)        new_query.sort = query.sort;
@@ -224,6 +232,12 @@ void search_session_uninit(struct search_session* session)
 		}
 		free(session->pages);
 	}
+	if (session->query.tags.tags)
+	{
+		for (int i = 0; i < session->query.tags.length; ++i)
+			free(session->query.tags.tags[i]);
+		free(session->query.tags.tags);
+	}
 	if (session->tag_summary)
 	{
 		for (int i = 0; i < session->tag_summary_length; ++i)
@@ -252,7 +266,6 @@ bool search_session_fetch_next_page(struct search_session* session)
 	cJSON* response_json = NULL;
 	cJSON* search_body_json = NULL;
 	char* search_body = NULL;
-	struct search_tag* tag_summary = NULL;
 	bool success = false;
 
 	list_request = curl_easy_init();
@@ -309,18 +322,20 @@ bool search_session_fetch_next_page(struct search_session* session)
 	{
 		cJSON* item = cJSON_GetArrayItem(tag_summary_json, i);
 		if (!cJSON_IsObject(item)) goto cleanup;
+		cJSON* tag = cJSON_GetObjectItemCaseSensitive(item, "tag");
+		if (!cJSON_IsObject(tag)) goto cleanup;
 
-		cJSON* label = cJSON_GetObjectItemCaseSensitive(item, "label");
+		cJSON* label = cJSON_GetObjectItemCaseSensitive(tag, "label");
 		if (!cJSON_IsString(label)) goto cleanup;
-		cJSON* uuid = cJSON_GetObjectItemCaseSensitive(item, "uuid");
+		cJSON* uuid = cJSON_GetObjectItemCaseSensitive(tag, "uuid");
 		if (!cJSON_IsString(uuid)) goto cleanup;
 
 		char* label_string = string_alloc(label->valuestring, string_length(label->valuestring));
 		char* uuid_string = string_alloc(uuid->valuestring, string_length(uuid->valuestring));
-		tag_summary = realloc(tag_summary, (i + 1) * sizeof(*tag_summary));
-		if (!label_string || !uuid_string || !tag_summary) goto cleanup;
-		tag_summary[i] = (struct search_tag){ .name = label_string, .uuid = uuid_string,
-		};
+		session->tag_summary = realloc(session->tag_summary, (i + 1) * sizeof(*session->tag_summary));
+		if (!label_string || !uuid_string || !session->tag_summary) goto cleanup;
+		session->tag_summary[i] = (struct search_tag){.name = label_string, .uuid = uuid_string};
+		session->tag_summary_length = i + 1;
 	}
 
 	// char* file_name = "response.json";
@@ -412,7 +427,7 @@ exit_tags:
 	success = true;
 
 cleanup:
-	free(tag_summary);
+	if (!success) free(session->tag_summary);
 	free(response.data);
 	free(search_body);
 	cJSON_Delete(response_json);

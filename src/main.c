@@ -69,16 +69,16 @@ static char* key_names[] = {
 static struct database* db;
 
 static char search_text[100];
-static char tags_text[100];
 static char bpm_min_text[4];
 static char bpm_max_text[4];
-bool bpm_range = false;
+static bool bpm_range = false;
+static bool prev_filter_window_opened = false;
 
 static enum search_sample_type selected_sample_type = SEARCH_SAMPLE_TYPE_ANY;
 static enum search_sort selected_sort = SEARCH_SORT_MOST_POPULAR;
 static enum search_scale selected_scale = SEARCH_SCALE_ANY;
 static enum search_key selected_key = SEARCH_KEY_ANY;
-static char** tags;
+static struct search_tag* tags;
 static int tags_length;
 static int min_bpm;
 static int max_bpm;
@@ -245,11 +245,60 @@ static void glfw_error_callback(int error, const char* description)
 	fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
+static void search(void)
+{
+	search_session_uninit(search_session);
+
+	char** uuids = NULL;
+
+	struct search_query query = {0};
+	query.search_string = search_text;
+	if (selected_sample_type != SEARCH_SAMPLE_TYPE_ANY)
+	{
+		query.used_parameters |= SEARCH_QUERY_PARAMETERS_SAMPLE_TYPE;
+		query.sample_type = selected_sample_type;
+	}
+	if (selected_sort != SEARCH_SORT_MOST_POPULAR)
+	{
+		query.used_parameters |= SEARCH_QUERY_PARAMETERS_SORT;
+		query.sort = selected_sort;
+	}
+	if (selected_scale != SEARCH_SCALE_ANY)
+	{
+		query.used_parameters |= SEARCH_QUERY_PARAMETERS_SCALE;
+		query.scale = selected_scale;
+	}
+	if (selected_key != SEARCH_KEY_ANY)
+	{
+		query.used_parameters |= SEARCH_QUERY_PARAMETERS_KEY;
+		query.key = selected_key;
+	}
+	if (tags != NULL && tags_length > 0)
+	{
+		query.used_parameters |= SEARCH_QUERY_PARAMETERS_TAGS;
+		uuids = malloc(tags_length * sizeof(char*));
+		for (int i = 0; i < tags_length; ++i)
+			uuids[i] = tags[i].uuid;
+		query.tags = (struct search_tags){.tags = uuids, .length = tags_length};
+	}
+	if (min_bpm != 0 && max_bpm != 0)
+	{
+		query.used_parameters |= SEARCH_QUERY_PARAMETERS_BPM;
+		query.bpm_range = (struct search_bpm_range){.min = min_bpm, .max = max_bpm};
+	}
+
+	if (!(search_session = search_session_init(search_context, query)) ||
+		!search_session_fetch_next_page(search_session))
+		open_error_popup("search failed");
+	
+	free(uuids);
+}
+
 int main(void)
 {
 	drag_drop_init();
 
-	if (!(db = database_init("files")) ||
+	if (!(db = database_init("C:\\REAPER\\Samples\\splice")) ||
 		!(search_context = search_context_init(db, update_search_item, 20)))
 		return EXIT_FAILURE;
 
@@ -367,6 +416,7 @@ int main(void)
 
 			float full_width = igGetContentRegionAvail().x;
 
+			bool filter_window_opened = false;
 			{
 				int num_columns = 3;
 				float column_spacing = igGetCursorPosX();
@@ -400,6 +450,8 @@ int main(void)
 
 				if (igBeginCombo("##key_dropdown", name, ImGuiComboFlags_HeightLargest))
 				{
+					filter_window_opened = true;
+
 					bool checked = selected_scale & SEARCH_SCALE_MAJOR;
 					if (igCheckbox("major", &checked))
 					{
@@ -431,6 +483,8 @@ int main(void)
 				igSetNextItemWidth(column_width - column_spacing);
 				if (igBeginCombo("##type_dropdown", sample_type_names[selected_sample_type], ImGuiComboFlags_HeightLargest))
 				{
+					filter_window_opened = true;
+
 					bool checked = selected_sample_type & SEARCH_SAMPLE_TYPE_ONE_SHOTS;
 					if (igCheckbox(sample_type_names[SEARCH_SAMPLE_TYPE_ONE_SHOTS], &checked))
 					{
@@ -455,6 +509,8 @@ int main(void)
 				igSetNextItemWidth(column_width);
 				if (igBeginCombo("##sort_dropdown", sort_names[selected_sort], ImGuiComboFlags_HeightLargest))
 				{
+					filter_window_opened = true;
+
 					for (int i = 0; i < SEARCH_SORT_LENGTH; ++i)
 					{
 						if (igSelectable_Bool(sort_names[i], selected_sort == i, ImGuiSelectableFlags_None, (ImVec2_c){0, 0}))
@@ -475,71 +531,104 @@ int main(void)
 
 				igSameLine(0, 0);
 				igSetNextItemWidth(column_width - column_spacing);
-				if (igBeginCombo("##tags_dropdown", "tags", ImGuiComboFlags_HeightLargest))
+
+				char tags_text[32];
+				if (tags_length == 0)
+					snprintf(tags_text, COUNTOF(tags_text), "no tags");
+				else if (tags_length == 1)
+					snprintf(tags_text, COUNTOF(tags_text), "1 tag");
+				else
+					snprintf(tags_text, COUNTOF(tags_text), "%d tags", tags_length);
+				if (igBeginCombo("##tags_dropdown",tags_text, ImGuiComboFlags_HeightLargest))
 				{
-					// float width = igGetContentRegionAvail().x;
+					filter_window_opened = true;
 
-					if (igInputTextEx("##tags_box", "tag", tags_text, COUNTOF(tags_text), (ImVec2_c){200, 0}, ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
+					float full_width = igGetContentRegionAvail().x;
+
+					igSeparator();
+
+					igPushID_Str("applied_tags");
+					for (int i = 0; i < tags_length && tags; ++i)
 					{
-						bool exists = false;
-						for (int i = 0; i < tags_length; ++i)
+						igPushID_Int(i);
+						if (igButton(tags[i].name, (ImVec2_c){full_width, 0}))
 						{
-							if (tags[i] && strcmp(tags[i], tags_text) == 0)
-							{
-								exists = true;
-								break;
-							}
+							free(tags[i].name);
+							free(tags[i].uuid);
+							if (i != tags_length - 1)
+								memmove(tags + i, tags + i + 1, (tags_length - i - 1) * sizeof(*tags));
+
+							--tags_length;
+							--i;
 						}
-
-						if (!exists && tags_text[0] != '\0')
-						{
-							++tags_length;
-							tags = realloc(tags, tags_length * sizeof(*tags));
-
-							tags[tags_length - 1] = malloc(COUNTOF(tags_text));
-							memcpy(tags[tags_length - 1], tags_text, COUNTOF(tags_text));
-
-							memset(tags_text, 0, COUNTOF(tags_text));
-							igSetKeyboardFocusHere(-1);
-						}
+						igPopID();
 					}
+					igPopID();
 
-					bool clear = false;
+					igPushID_Str("tag_summary");
+					float spacing = igGetCursorPosX();
 					if (search_session && search_session->tag_summary)
 					{
 						for (int i = 0; i < search_session->tag_summary_length; ++i)
 						{
 							igPushID_Int(i);
-							igButton(search_session->tag_summary[i].name, (ImVec2_c){0});
+
+							float text_width = igCalcTextSize(search_session->tag_summary[i].name, NULL, false, false).x;
+							float button_width = text_width + 20;
+							float button_height = 30;
+							float next_cursor_pos = igGetCursorPosX() + button_width + spacing;
+							if (next_cursor_pos > full_width)
+							{
+								igSetCursorPosY(igGetCursorPosY() + button_height + spacing);
+								igSetCursorPosX(spacing);
+								next_cursor_pos = igGetCursorPosX() + button_width + spacing;
+							}
+							float cursor_y = igGetCursorPosY();
+							if (igButton(search_session->tag_summary[i].name, (ImVec2_c){button_width, button_height}))
+							{
+								char* name = search_session->tag_summary[i].name;
+								char* uuid = search_session->tag_summary[i].uuid;
+								int uuid_length = string_length(uuid);
+								int name_length = string_length(name);
+
+								bool exists = false;
+								for (int i = 0; i < tags_length; ++i)
+								{
+									if (tags[i].uuid && strcmp(tags[i].uuid, uuid) == 0)
+									{
+										exists = true;
+										break;
+									}
+								}
+
+								if (!exists && uuid[0] != '\0')
+								{
+									++tags_length;
+									tags = realloc(tags, tags_length * sizeof(*tags));
+
+									tags[tags_length - 1].uuid = malloc(uuid_length + 1);
+									memcpy(tags[tags_length - 1].uuid, uuid, uuid_length + 1);
+									tags[tags_length - 1].name = malloc(name_length + 1);
+									memcpy(tags[tags_length - 1].name, name, name_length + 1);
+								}
+							}
+							igSetCursorPosY(cursor_y);
+							igSetCursorPosX(next_cursor_pos);
+
 							igPopID();
 						}
+						igNewLine();
 					}
-					// for (int i = 0; i < tags_length && tags; ++i)
-					// {
-					// 	if (tags[i] == NULL)
-					// 	{
-					// 		open_error_popup("tag epic fail");
-					// 		clear = true;
-					// 		break;
-					// 	}
-					//
-					// 	igPushID_Int(i);
-					// 	if (igButton(tags[i], (ImVec2_c){width, 0}))
-					// 	{
-					// 		free(tags[i]);
-					// 		if (i != tags_length - 1)
-					// 			memmove(tags + i, tags + i + 1, (tags_length - i - 1) * sizeof(*tags));
-					//
-					// 		--tags_length;
-					// 		--i;
-					// 	}
-					// 	igPopID();
-					// }
+					igPopID();
+					igSeparator();
 
-					if (clear || igButton("clear", (ImVec2_c){0}))
+					if (igButton("clear", (ImVec2_c){0}))
 					{
 						for (int i = 0; i < tags_length; ++i)
-							free(tags[i]);
+						{
+							free(tags[i].name);
+							free(tags[i].uuid);
+						}
 						free(tags);
 						tags = NULL;
 						tags_length = 0;
@@ -560,6 +649,8 @@ int main(void)
 					snprintf(bpm_text, COUNTOF(bpm_text), "%d - %d bpm", min_bpm, max_bpm);
 				if (igBeginCombo("##bpm_dropdown", bpm_text, ImGuiComboFlags_HeightLargest))
 				{
+					filter_window_opened = true;
+
 					igCheckbox("range", &bpm_range);
 					ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsDecimal;
 					if (bpm_range)
@@ -601,49 +692,14 @@ int main(void)
 				}
 			}
 
+			if (prev_filter_window_opened && !filter_window_opened)
+				search();
+			prev_filter_window_opened = filter_window_opened;
+
 			if (first_frame)
 				igSetKeyboardFocusHere(0);
 			if (igInputTextEx("##search_box", "search", search_text, COUNTOF(search_text), (ImVec2_c){full_width, 0}, ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
-			{
-				search_session_uninit(search_session);
-
-				struct search_query query = {0};
-				query.search_string = search_text;
-				if (selected_sample_type != SEARCH_SAMPLE_TYPE_ANY)
-				{
-					query.used_parameters |= SEARCH_QUERY_PARAMETERS_SAMPLE_TYPE;
-					query.sample_type = selected_sample_type;
-				}
-				if (selected_sort != SEARCH_SORT_MOST_POPULAR)
-				{
-					query.used_parameters |= SEARCH_QUERY_PARAMETERS_SORT;
-					query.sort = selected_sort;
-				}
-				if (selected_scale != SEARCH_SCALE_ANY)
-				{
-					query.used_parameters |= SEARCH_QUERY_PARAMETERS_SCALE;
-					query.scale = selected_scale;
-				}
-				if (selected_key != SEARCH_KEY_ANY)
-				{
-					query.used_parameters |= SEARCH_QUERY_PARAMETERS_KEY;
-					query.key = selected_key;
-				}
-				if (tags != NULL && tags_length > 0)
-				{
-					query.used_parameters |= SEARCH_QUERY_PARAMETERS_TAGS;
-					query.tags = (struct search_tags){.tags = tags, .length = tags_length};
-				}
-				if (min_bpm != 0 && max_bpm != 0)
-				{
-					query.used_parameters |= SEARCH_QUERY_PARAMETERS_BPM;
-					query.bpm_range = (struct search_bpm_range){.min = min_bpm, .max = max_bpm};
-				}
-
-				if (!(search_session = search_session_init(search_context, query)) ||
-					!search_session_fetch_next_page(search_session))
-					open_error_popup("search failed");
-			}
+				search();
 
 			igSeparator();
 
