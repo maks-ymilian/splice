@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
+#include <string.h>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -11,8 +13,6 @@
 #include <cimgui.h>
 #include <cimgui_impl.h>
 
-#include <curl/curl.h>
-
 #include <miniaudio.h>
 
 #include "search.h"
@@ -23,37 +23,66 @@
 
 #define DRAW_DEBUG 0
 
-enum sort_type
-{
-	SORT_TYPE_MOST_RELEVANT,
-	SORT_TYPE_MOST_POPULAR,
-	SORT_TYPE_MOST_RECENT,
-	SORT_TYPE_RANDOM,
-	SORT_TYPE_LENGTH,
-};
-
 enum align_type
 {
 	ALIGN_TYPE_CENTER = 0,
-	ALIGN_TYPE_LEFT = 2,
-	ALIGN_TYPE_RIGHT = 4,
-	ALIGN_TYPE_TOP = 8,
-	ALIGN_TYPE_BOTTOM = 16,
+	ALIGN_TYPE_LEFT = 1,
+	ALIGN_TYPE_RIGHT = 2,
+	ALIGN_TYPE_TOP = 4,
+	ALIGN_TYPE_BOTTOM = 8,
 };
 
-static const char* sort_type_names[] = {
-	[SORT_TYPE_MOST_RELEVANT] = "most relevant",
-	[SORT_TYPE_MOST_POPULAR] = "most popular",
-	[SORT_TYPE_MOST_RECENT] = "most recent",
-	[SORT_TYPE_RANDOM] = "random",
+static char* sort_names[] = {
+	[SEARCH_SORT_MOST_RELEVANT] = "most relevant",
+	[SEARCH_SORT_MOST_POPULAR] = "most popular",
+	[SEARCH_SORT_MOST_RECENT] = "most recent",
+	[SEARCH_SORT_RANDOM] = "random",
+};
+
+static char* sample_type_names[] = {
+	[SEARCH_SAMPLE_TYPE_ONE_SHOTS] = "one shots",
+	[SEARCH_SAMPLE_TYPE_LOOPS] = "loops",
+	[SEARCH_SAMPLE_TYPE_ANY] = "one shots & loops",
+};
+
+static char* scale_names[] = {
+	[SEARCH_SCALE_MAJOR] = "major",
+	[SEARCH_SCALE_MINOR] = "minor",
+};
+
+static char* key_names[] = {
+	[SEARCH_KEY_ANY] = "all",
+	[SEARCH_KEY_C] = "C",
+	[SEARCH_KEY_C_SHARP] = "C#",
+	[SEARCH_KEY_D] = "D",
+	[SEARCH_KEY_D_SHARP] = "D#",
+	[SEARCH_KEY_E] = "E",
+	[SEARCH_KEY_F] = "F",
+	[SEARCH_KEY_F_SHARP] = "F#",
+	[SEARCH_KEY_G] = "G",
+	[SEARCH_KEY_G_SHARP] = "G#",
+	[SEARCH_KEY_A] = "A",
+	[SEARCH_KEY_A_SHARP] = "A#",
+	[SEARCH_KEY_B] = "B",
 };
 
 static struct database* db;
 
-static enum sort_type selected_sort = SORT_TYPE_MOST_POPULAR;
-
 static char search_text[100];
 static char tags_text[100];
+static char bpm_min_text[4];
+static char bpm_max_text[4];
+bool bpm_range = false;
+
+static enum search_sample_type selected_sample_type = SEARCH_SAMPLE_TYPE_ANY;
+static enum search_sort selected_sort = SEARCH_SORT_MOST_POPULAR;
+static enum search_scale selected_scale = SEARCH_SCALE_ANY;
+static enum search_key selected_key = SEARCH_KEY_ANY;
+static char** tags;
+static int tags_length;
+static int min_bpm;
+static int max_bpm;
+
 static struct search_session* search_session;
 static struct search_context* search_context;
 
@@ -101,9 +130,9 @@ static bool toggle_play(struct search_item_data result)
 
 	ma_decoder_uninit(&decoder);
 	ma_decoder_config decoder_config = ma_decoder_config_init(device.playback.format, device.playback.channels, device.sampleRate);
-	if (ma_decoder_init_memory(audio.data, audio.length, &decoder_config, &decoder) != MA_SUCCESS) return false;
+	if (ma_decoder_init_memory(audio.data, audio.length, &decoder_config, &decoder)) return false;
 	if (ma_decoder_get_length_in_pcm_frames(&decoder, &decoder_length)) return false;
-	if (ma_device_start(&device) != MA_SUCCESS) return false;
+	if (ma_device_start(&device)) return false;
 
 	currently_playing_name = result.name;
 	return true;
@@ -218,26 +247,24 @@ static void glfw_error_callback(int error, const char* description)
 
 int main(void)
 {
-	db = database_init("files");
-	search_context = search_context_init(db, update_search_item, 20);
-
 	drag_drop_init();
 
-	if (curl_global_init(CURL_GLOBAL_ALL))
+	if (!(db = database_init("files")) ||
+		!(search_context = search_context_init(db, update_search_item, 20)))
 		return EXIT_FAILURE;
 
 	ma_context context;
-	if (ma_context_init(NULL, 0, NULL, &context) != MA_SUCCESS)
+	if (ma_context_init(NULL, 0, NULL, &context))
 		return EXIT_FAILURE;
 
 	ma_device_config device_config = ma_device_config_init(ma_device_type_playback);
-	device_config.playback.format      = ma_format_unknown;
-	device_config.playback.channels    = 0;
-	device_config.sampleRate           = 0;
-	device_config.dataCallback         = data_callback;
-	device_config.pUserData            = NULL;
+	device_config.playback.format = ma_format_unknown;
+	device_config.playback.channels = 0;
+	device_config.sampleRate = 0;
+	device_config.dataCallback = data_callback;
+	device_config.pUserData = NULL;
 	device_config.notificationCallback = on_device_notification;
-	if (ma_device_init(&context, &device_config, &device) != MA_SUCCESS)
+	if (ma_device_init(&context, &device_config, &device))
 		return EXIT_FAILURE;
 
 	glfwSetErrorCallback(glfw_error_callback);
@@ -245,7 +272,7 @@ int main(void)
 		return EXIT_FAILURE;
 
 	// GL 3.0 + GLSL 130
-	const char* glsl_version = "#version 130";
+	char* glsl_version = "#version 130";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -340,49 +367,229 @@ int main(void)
 
 			float full_width = igGetContentRegionAvail().x;
 
-			int num_columns = 4;
-			float spacing = igGetCursorPosX();
-			float column_width = (float)full_width / num_columns;
 			{
+				int num_columns = 3;
+				float column_spacing = igGetCursorPosX();
+				float column_width = (float)full_width / num_columns;
 				igSameLine(0, 0);
-				igSetNextItemWidth(column_width - spacing);
-				if (igBeginCombo("##key_dropdown", "key", ImGuiComboFlags_None))
+				igSetNextItemWidth(column_width - column_spacing);
+
+				char name[64];
+				int name_length = 0;
+				if (selected_key == SEARCH_KEY_ANY)
 				{
-					igEndCombo();
-				}
-			}
-			{
-				igSameLine(0, spacing);
-				igSetNextItemWidth(column_width - spacing);
-				if (igBeginCombo("##bpm_dropdown", "bpm", ImGuiComboFlags_None))
-				{
-					igEndCombo();
-				}
-			}
-			{
-				igSameLine(0, spacing);
-				igSetNextItemWidth(column_width - spacing);
-				if (igBeginCombo("##type_dropdown", "one shots & loops", ImGuiComboFlags_None))
-				{
-					igEndCombo();
-				}
-			}
-			{
-				igSameLine(0, spacing);
-				igSetNextItemWidth(column_width);
-				if (igBeginCombo("##sort_dropdown", sort_type_names[selected_sort], ImGuiComboFlags_None))
-				{
-					for (int i = 0; i < SORT_TYPE_LENGTH; ++i)
+					char all_keys[] = "all keys";
+					char keys[] = " keys";
+					if (selected_scale == SEARCH_SCALE_ANY)
+						string_concat(name, &name_length, COUNTOF(name), all_keys, COUNTOF(all_keys) - 1);
+					else
 					{
-						if (igSelectable_Bool(sort_type_names[i], selected_sort == i, ImGuiSelectableFlags_None, (ImVec2_c){0, 0}))
+						string_concat(name, &name_length, COUNTOF(name), scale_names[selected_scale], string_length(scale_names[selected_scale]));
+						string_concat(name, &name_length, COUNTOF(name), keys, COUNTOF(keys) - 1);
+					}
+				}
+				else
+				{
+					string_concat(name, &name_length, COUNTOF(name), key_names[selected_key], string_length(key_names[selected_key]));
+					if (selected_scale != SEARCH_SCALE_ANY)
+					{
+						string_concat(name, &name_length, COUNTOF(name), " ", 1);
+						string_concat(name, &name_length, COUNTOF(name), scale_names[selected_scale], string_length(scale_names[selected_scale]));
+					}
+				}
+
+				if (igBeginCombo("##key_dropdown", name, ImGuiComboFlags_HeightLargest))
+				{
+					bool checked = selected_scale & SEARCH_SCALE_MAJOR;
+					if (igCheckbox("major", &checked))
+					{
+						selected_scale ^= SEARCH_SCALE_MAJOR;
+						
+						if (selected_scale == (SEARCH_SCALE_MAJOR | SEARCH_SCALE_MINOR))
+							selected_scale = SEARCH_SCALE_MAJOR;
+					}
+
+					checked = selected_scale & SEARCH_SCALE_MINOR;
+					if (igCheckbox("minor", &checked))
+					{
+						selected_scale ^= SEARCH_SCALE_MINOR;
+
+						if (selected_scale == (SEARCH_SCALE_MAJOR | SEARCH_SCALE_MINOR))
+							selected_scale = SEARCH_SCALE_MINOR;
+					}
+
+					igSeparator();
+
+					for (int i = 0; i < SEARCH_KEY_LENGTH; ++i)
+					{
+						if (igSelectable_Bool(key_names[i], selected_key == i, ImGuiSelectableFlags_None, (ImVec2_c){0, 0}))
+							selected_key = i;
+					}
+					igEndCombo();
+				}
+				igSameLine(0, column_spacing);
+				igSetNextItemWidth(column_width - column_spacing);
+				if (igBeginCombo("##type_dropdown", sample_type_names[selected_sample_type], ImGuiComboFlags_HeightLargest))
+				{
+					bool checked = selected_sample_type & SEARCH_SAMPLE_TYPE_ONE_SHOTS;
+					if (igCheckbox(sample_type_names[SEARCH_SAMPLE_TYPE_ONE_SHOTS], &checked))
+					{
+						selected_sample_type ^= SEARCH_SAMPLE_TYPE_ONE_SHOTS;
+
+						if (selected_sample_type == (SEARCH_SAMPLE_TYPE_ONE_SHOTS | SEARCH_SAMPLE_TYPE_LOOPS))
+							selected_sample_type = SEARCH_SAMPLE_TYPE_ONE_SHOTS;
+					}
+
+					checked = selected_sample_type & SEARCH_SAMPLE_TYPE_LOOPS;
+					if (igCheckbox(sample_type_names[SEARCH_SAMPLE_TYPE_LOOPS], &checked))
+					{
+						selected_sample_type ^= SEARCH_SAMPLE_TYPE_LOOPS;
+
+						if (selected_sample_type == (SEARCH_SAMPLE_TYPE_ONE_SHOTS | SEARCH_SAMPLE_TYPE_LOOPS))
+							selected_sample_type = SEARCH_SAMPLE_TYPE_LOOPS;
+					}
+
+					igEndCombo();
+				}
+				igSameLine(0, column_spacing);
+				igSetNextItemWidth(column_width);
+				if (igBeginCombo("##sort_dropdown", sort_names[selected_sort], ImGuiComboFlags_HeightLargest))
+				{
+					for (int i = 0; i < SEARCH_SORT_LENGTH; ++i)
+					{
+						if (igSelectable_Bool(sort_names[i], selected_sort == i, ImGuiSelectableFlags_None, (ImVec2_c){0, 0}))
 							selected_sort = i;
 					}
 					igEndCombo();
 				}
+
+				igNewLine();
 			}
 
-			if (igInputTextEx("##tags_box", "tags", tags_text, COUNTOF(tags_text), (ImVec2_c){full_width, 0}, ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
 			{
+				int num_columns = 2;
+				float column_spacing = igGetCursorPosX();
+				float column_width = (float)full_width / num_columns;
+				igSameLine(0, 0);
+				igSetNextItemWidth(column_width - column_spacing);
+
+				igSameLine(0, 0);
+				igSetNextItemWidth(column_width - column_spacing);
+				if (igBeginCombo("##tags_dropdown", "tags", ImGuiComboFlags_HeightLargest))
+				{
+					float width = igGetContentRegionAvail().x;
+
+					if (igInputTextEx("##tags_box", "tag", tags_text, COUNTOF(tags_text), (ImVec2_c){200, 0}, ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
+					{
+						bool exists = false;
+						for (int i = 0; i < tags_length; ++i)
+						{
+							if (tags[i] && strcmp(tags[i], tags_text) == 0)
+							{
+								exists = true;
+								break;
+							}
+						}
+
+						if (!exists && tags_text[0] != '\0')
+						{
+							++tags_length;
+							tags = realloc(tags, tags_length * sizeof(*tags));
+
+							tags[tags_length - 1] = malloc(COUNTOF(tags_text));
+							memcpy(tags[tags_length - 1], tags_text, COUNTOF(tags_text));
+
+							memset(tags_text, 0, COUNTOF(tags_text));
+							igSetKeyboardFocusHere(-1);
+						}
+					}
+
+					bool clear = false;
+					for (int i = 0; i < tags_length && tags; ++i)
+					{
+						if (tags[i] == NULL)
+						{
+							open_error_popup("tag epic fail");
+							clear = true;
+							break;
+						}
+
+						igPushID_Int(i);
+						if (igButton(tags[i], (ImVec2_c){width, 0}))
+						{
+							free(tags[i]);
+							if (i != tags_length - 1)
+								memmove(tags + i, tags + i + 1, (tags_length - i - 1) * sizeof(*tags));
+
+							--tags_length;
+							--i;
+						}
+						igPopID();
+					}
+
+					if (clear || igButton("clear", (ImVec2_c){0}))
+					{
+						for (int i = 0; i < tags_length; ++i)
+							free(tags[i]);
+						free(tags);
+						tags = NULL;
+						tags_length = 0;
+					}
+
+					igEndCombo();
+				}
+
+				igSameLine(0, column_spacing);
+				igSetNextItemWidth(column_width);
+
+				char bpm_text[32];
+				if (min_bpm == 0 || max_bpm == 0)
+					snprintf(bpm_text, COUNTOF(bpm_text), "any bpm");
+				else if (min_bpm == max_bpm)
+					snprintf(bpm_text, COUNTOF(bpm_text), "%d bpm", min_bpm);
+				else
+					snprintf(bpm_text, COUNTOF(bpm_text), "%d - %d bpm", min_bpm, max_bpm);
+				if (igBeginCombo("##bpm_dropdown", bpm_text, ImGuiComboFlags_HeightLargest))
+				{
+					igCheckbox("range", &bpm_range);
+					ImGuiInputTextFlags flags = ImGuiInputTextFlags_CharsDecimal;
+					if (bpm_range)
+					{
+						igInputTextEx("##min_bpm_box", "min", bpm_min_text, COUNTOF(bpm_min_text), (ImVec2_c){70, 0}, flags, NULL, NULL);
+						igSameLine(0, 0);
+						igText(" - ");
+						igSameLine(0, 0);
+						igInputTextEx("##max_bpm_box", "max", bpm_max_text, COUNTOF(bpm_max_text), (ImVec2_c){70, 0}, flags, NULL, NULL);
+					}
+					else
+						igInputTextEx("##bpm_box", "bpm", bpm_min_text, COUNTOF(bpm_min_text), (ImVec2_c){70, 0}, flags, NULL, NULL);
+
+					if (!string_parse_int(bpm_min_text, string_length(bpm_min_text), 1, 999, &min_bpm))
+						min_bpm = 0;
+					if (!string_parse_int(bpm_max_text, string_length(bpm_max_text), 1, 999, &max_bpm))
+						max_bpm = 0;
+
+					if (!bpm_range || max_bpm == 0)
+						max_bpm = min_bpm;
+
+					if (min_bpm == 0)
+						min_bpm = max_bpm;
+
+					if (max_bpm < min_bpm)
+					{
+						int temp = min_bpm;
+						min_bpm = max_bpm;
+						max_bpm = temp;
+					}
+
+					if (igButton("clear", (ImVec2_c){0}))
+					{
+						memset(bpm_min_text, 0, COUNTOF(bpm_min_text));
+						memset(bpm_max_text, 0, COUNTOF(bpm_max_text));
+					}
+
+					igEndCombo();
+				}
 			}
 
 			if (first_frame)
@@ -390,7 +597,41 @@ int main(void)
 			if (igInputTextEx("##search_box", "search", search_text, COUNTOF(search_text), (ImVec2_c){full_width, 0}, ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL))
 			{
 				search_session_uninit(search_session);
-				if (!(search_session = search_session_init(search_context, (struct search_query){.search_string = search_text})) ||
+
+				struct search_query query = {0};
+				query.search_string = search_text;
+				if (selected_sample_type != SEARCH_SAMPLE_TYPE_ANY)
+				{
+					query.used_parameters |= SEARCH_QUERY_PARAMETERS_SAMPLE_TYPE;
+					query.sample_type = selected_sample_type;
+				}
+				if (selected_sort != SEARCH_SORT_MOST_POPULAR)
+				{
+					query.used_parameters |= SEARCH_QUERY_PARAMETERS_SORT;
+					query.sort = selected_sort;
+				}
+				if (selected_scale != SEARCH_SCALE_ANY)
+				{
+					query.used_parameters |= SEARCH_QUERY_PARAMETERS_SCALE;
+					query.scale = selected_scale;
+				}
+				if (selected_key != SEARCH_KEY_ANY)
+				{
+					query.used_parameters |= SEARCH_QUERY_PARAMETERS_KEY;
+					query.key = selected_key;
+				}
+				if (tags != NULL && tags_length > 0)
+				{
+					query.used_parameters |= SEARCH_QUERY_PARAMETERS_TAGS;
+					query.tags = (struct search_tags){.tags = tags, .length = tags_length};
+				}
+				if (min_bpm != 0 && max_bpm != 0)
+				{
+					query.used_parameters |= SEARCH_QUERY_PARAMETERS_BPM;
+					query.bpm_range = (struct search_bpm_range){.min = min_bpm, .max = max_bpm};
+				}
+
+				if (!(search_session = search_session_init(search_context, query)) ||
 					!search_session_fetch_next_page(search_session))
 					open_error_popup("search failed");
 			}
@@ -452,8 +693,6 @@ int main(void)
 										int tags_length = 0;
 										for (int i = 0; i < result->data.tags_length; ++i)
 										{
-											// if (!string_concat(tags, &tags_length, COUNTOF(tags), result->data.tags[i], string_length(result->data.tags[i])) ||
-											// 	i < result->data.tags_length - 1 ? !string_concat(tags, &tags_length, COUNTOF(tags), "  ", 2) : false)
 											if (!string_concat(tags, &tags_length, COUNTOF(tags), "  ", 2) ||
 												!string_concat(tags, &tags_length, COUNTOF(tags), result->data.tags[i], string_length(result->data.tags[i])))
 											{
@@ -679,8 +918,6 @@ int main(void)
 	ma_decoder_uninit(&decoder);
 	ma_device_uninit(&device);
 	ma_context_uninit(&context);
-
-	curl_global_cleanup();
 
 	drag_drop_uninit();
 

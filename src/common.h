@@ -32,8 +32,10 @@ struct buffer
 int string_length(char* string);
 char* string_alloc(char* string, int string_length);
 void string_replace_char(char* string, int string_length, char find, char replace);
+bool string_find_char(char* string, int string_length, char find);
 bool string_concat(char* dest, int* dest_length, int dest_max_length, char* src, int src_length);
 void string_set_case(char* string, int string_length, bool uppercase);
+bool string_parse_int(char* string, int string_length, int min_value, int max_value, int* out_int);
 
 bool copy_buffer(struct buffer from, struct buffer* to);
 

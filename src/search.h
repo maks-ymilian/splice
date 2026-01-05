@@ -4,6 +4,58 @@
 
 #include "database.h"
 
+enum search_sample_type
+{
+	SEARCH_SAMPLE_TYPE_ANY = 0,
+	SEARCH_SAMPLE_TYPE_ONE_SHOTS = 1,
+	SEARCH_SAMPLE_TYPE_LOOPS = 2,
+};
+
+enum search_scale
+{
+	SEARCH_SCALE_ANY = 0,
+	SEARCH_SCALE_MAJOR = 1,
+	SEARCH_SCALE_MINOR = 2,
+};
+
+enum search_key
+{
+	SEARCH_KEY_ANY,
+	SEARCH_KEY_C,
+	SEARCH_KEY_C_SHARP,
+	SEARCH_KEY_D,
+	SEARCH_KEY_D_SHARP,
+	SEARCH_KEY_E,
+	SEARCH_KEY_F,
+	SEARCH_KEY_F_SHARP,
+	SEARCH_KEY_G,
+	SEARCH_KEY_G_SHARP,
+	SEARCH_KEY_A,
+	SEARCH_KEY_A_SHARP,
+	SEARCH_KEY_B,
+	SEARCH_KEY_LENGTH,
+};
+
+enum search_sort
+{
+	SEARCH_SORT_MOST_RELEVANT,
+	SEARCH_SORT_MOST_POPULAR,
+	SEARCH_SORT_MOST_RECENT,
+	SEARCH_SORT_RANDOM,
+	SEARCH_SORT_LENGTH,
+};
+
+enum search_query_parameters
+{
+	SEARCH_QUERY_PARAMETERS_NONE = 0,
+	SEARCH_QUERY_PARAMETERS_TAGS = 1,
+	SEARCH_QUERY_PARAMETERS_BPM = 2,
+	SEARCH_QUERY_PARAMETERS_SORT = 4,
+	SEARCH_QUERY_PARAMETERS_SAMPLE_TYPE = 8,
+	SEARCH_QUERY_PARAMETERS_KEY = 16,
+	SEARCH_QUERY_PARAMETERS_SCALE = 32,
+};
+
 struct search_item_data
 {
 	char* name;
@@ -18,9 +70,28 @@ struct search_item_data
 	int duration;
 };
 
+struct search_bpm_range
+{
+	int min;
+	int max;
+};
+
+struct search_tags
+{
+	char** tags;
+	int length;
+};
+
 struct search_query
 {
 	char* search_string;
+	enum search_query_parameters used_parameters;
+	struct search_tags tags;
+	struct search_bpm_range bpm_range;
+	enum search_sort sort;
+	enum search_sample_type sample_type;
+	enum search_key key;
+	enum search_scale scale;
 };
 
 struct search_item

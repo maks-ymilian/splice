@@ -18,9 +18,9 @@ struct search_context
 
 static const char* search_graphql_query = "query SamplesSearch($parent_asset_uuid: GUID, $query: String, $order: SortOrder = DESC, $sort: AssetSortType = popularity, $random_seed: String, $tags: [ID], $key: String, $chord_type: String, $bpm: String, $min_bpm: Int, $max_bpm: Int, $limit: Int = 50, $asset_category_slug: AssetCategorySlug, $page: Int = 1, $ac_uuid: String, $parent_asset_type: AssetTypeSlug) {\n  assetsSearch(\n    filter: {legacy: true, published: true, asset_type_slug: sample, query: $query, tag_ids: $tags, key: $key, chord_type: $chord_type, bpm: $bpm, min_bpm: $min_bpm, max_bpm: $max_bpm, asset_category_slug: $asset_category_slug, ac_uuid: $ac_uuid}\n    children: {parent_asset_uuid: $parent_asset_uuid}\n    pagination: {page: $page, limit: $limit}\n    sort: {sort: $sort, order: $order, random_seed: $random_seed}\n    legacy: {parent_asset_type: $parent_asset_type}\n  ) {\n    ...assetDetails\n    __typename\n  }\n}\n\nfragment assetDetails on AssetPage {\n  ...assetPageItems\n  ...assetTagSummaries\n  pagination_metadata {\n    currentPage\n    totalPages\n    __typename\n  }\n  response_metadata {\n    records\n    __typename\n  }\n  __typename\n}\n\nfragment assetPageItems on AssetPage {\n  items {\n    ... on IAsset {\n      asset_type_slug\n      asset_prices {\n        amount\n        currency\n        __typename\n      }\n      uuid\n      name\n      tags {\n        uuid\n        label\n        __typename\n      }\n      files {\n        uuid\n        name\n        hash\n        path\n        asset_file_type_slug\n        url\n        __typename\n      }\n      __typename\n    }\n    ... on IAssetChild {\n      parents(filter: {asset_type_slug: pack}) {\n        items {\n          ... on PackAsset {\n            permalink_slug\n            permalink_base_url\n            uuid\n            name\n            files {\n              uuid\n              path\n              asset_file_type_slug\n              url\n              __typename\n            }\n            __typename\n          }\n          __typename\n        }\n        __typename\n      }\n      __typename\n    }\n    ... on SampleAsset {\n      bpm\n      chord_type\n      key\n      duration\n      uuid\n      name\n      asset_category_slug\n      __typename\n    }\n    ... on PresetAsset {\n      uuid\n      name\n      asset_devices {\n        uuid\n        device {\n          name\n          uuid\n          minimum_device_version\n          __typename\n        }\n        __typename\n      }\n      __typename\n    }\n    ... on PackAsset {\n      uuid\n      name\n      provider {\n        name\n        permalink_slug\n        __typename\n      }\n      provider_uuid\n      uuid\n      permalink_slug\n      permalink_base_url\n      main_genre\n      __typename\n    }\n    __typename\n  }\n  __typename\n}\n\nfragment assetTagSummaries on AssetPage {\n  tag_summary {\n    count\n    tag {\n      uuid\n      label\n      taxonomy {\n        uuid\n        name\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n  __typename\n}";
 
-static cJSON* build_search_body(char* query, int max_results_per_page, int page)
+static cJSON* build_search_body(struct search_query query, int max_results_per_page, int page)
 {
-	if (!query || max_results_per_page < 1 || page < 1) return NULL;
+	if (!query.search_string || max_results_per_page < 1 || page < 1) return NULL;
 
 	cJSON* json = NULL;
 	if (!(json = cJSON_CreateObject())) return NULL;
@@ -30,20 +30,59 @@ static cJSON* build_search_body(char* query, int max_results_per_page, int page)
 	cJSON* variables = NULL;
 	if ((variables = cJSON_AddObjectToObject(json, "variables")))
 	{
-		if (!cJSON_AddStringToObject(variables, "order", "DESC")) goto error;
-		if (!cJSON_AddStringToObject(variables, "sort", "popularity")) goto error;
+		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_TAGS)
+		{
+			// if (!(new_query.tags.tags = malloc(query.tags.length * sizeof(*query.tags.tags)))) goto error;
+			// for (int i = 0; i < query.tags.length; ++i)
+			// 	if (!(new_query.tags.tags[i] = string_alloc(query.tags.tags[i], string_length(query.tags.tags[i])))) goto error;
+			if (!cJSON_AddArrayToObject(variables, "tags")) goto error;
+		}
+		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_BPM)
+		{
+			if (query.bpm_range.min == query.bpm_range.max)
+			{
+				if (!cJSON_AddNumberToObject(variables, "bpm", query.bpm_range.min)) goto error;
+			}
+			else
+			{
+				if (!cJSON_AddNumberToObject(variables, "min_bpm", query.bpm_range.min)) goto error;
+				if (!cJSON_AddNumberToObject(variables, "max_bpm", query.bpm_range.max)) goto error;
+			}
+		}
+		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SORT)
+		{
+			if (!cJSON_AddStringToObject(variables, "sort", "popularity")) goto error;
+			if (!cJSON_AddNullToObject(variables, "random_seed")) goto error;
+			if (!cJSON_AddStringToObject(variables, "order", "DESC")) goto error;
+		}
+		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SAMPLE_TYPE)
+		{
+			if (!cJSON_AddNullToObject(variables, "asset_category_slug")) goto error;
+		}
+		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_KEY)
+		{
+			if (!cJSON_AddNullToObject(variables, "key")) goto error;
+		}
+		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SCALE)
+		{
+			if (!cJSON_AddNullToObject(variables, "chord_type")) goto error;
+		}
+
 		if (!cJSON_AddNumberToObject(variables, "limit", max_results_per_page)) goto error;
 		if (!cJSON_AddNumberToObject(variables, "page", page)) goto error;
-		if (!cJSON_AddArrayToObject(variables, "tags")) goto error;
-		if (!cJSON_AddNullToObject(variables, "key")) goto error;
-		if (!cJSON_AddNullToObject(variables, "chord_type")) goto error;
-		if (!cJSON_AddNullToObject(variables, "bpm")) goto error;
-		if (!cJSON_AddNullToObject(variables, "min_bpm")) goto error;
-		if (!cJSON_AddNullToObject(variables, "max_bpm")) goto error;
-		if (!cJSON_AddNullToObject(variables, "asset_category_slug")) goto error;
-		if (!cJSON_AddNullToObject(variables, "random_seed")) goto error;
-		if (!cJSON_AddNullToObject(variables, "random_seed")) goto error;
-		if (!cJSON_AddStringToObject(variables, "query", query)) goto error;
+		if (!cJSON_AddStringToObject(variables, "query", query.search_string)) goto error;
+
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "tags") && !cJSON_AddArrayToObject(variables, "tags")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "bpm") && !cJSON_AddNullToObject(variables, "bpm")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "min_bpm") && !cJSON_AddNullToObject(variables, "min_bpm")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "max_bpm") && !cJSON_AddNullToObject(variables, "max_bpm")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "sort") && !cJSON_AddStringToObject(variables, "sort", "popularity")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "random_seed") && !cJSON_AddNullToObject(variables, "random_seed")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "order") && !cJSON_AddStringToObject(variables, "order", "DESC")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "asset_category_slug") && !cJSON_AddNullToObject(variables, "asset_category_slug")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "key") && !cJSON_AddNullToObject(variables, "key")) goto error;
+		if (!cJSON_GetObjectItemCaseSensitive(variables, "chord_type") && !cJSON_AddNullToObject(variables, "chord_type")) goto error;
+
 		if (!cJSON_AddNullToObject(variables, "ac_uuid")) goto error;
 	}
 	else
@@ -60,10 +99,12 @@ error:
 
 struct search_context* search_context_init(struct database* db, search_item_update_func item_update_func, int max_results_per_page)
 {
-	if (max_results_per_page < 1) return NULL;
+	if (curl_global_init(CURL_GLOBAL_ALL)) return NULL;
+
+	if (max_results_per_page < 1) goto error;
 
 	struct search_context* search_context = NULL;
-	if (!(search_context = calloc(1, sizeof(*search_context)))) return NULL;
+	if (!(search_context = calloc(1, sizeof(*search_context)))) goto error;
 
 	*search_context = (struct search_context){
 		.db = db,
@@ -71,11 +112,17 @@ struct search_context* search_context_init(struct database* db, search_item_upda
 		.max_results_per_page = max_results_per_page,
 	};
 	return search_context;
+
+error:
+	curl_global_cleanup();
+	return NULL;
 }
 
 void search_context_uninit(struct search_context* context)
 {
 	free(context);
+
+	curl_global_cleanup();
 }
 
 struct search_session* search_session_init(struct search_context* context, struct search_query query)
@@ -83,13 +130,43 @@ struct search_session* search_session_init(struct search_context* context, struc
 	if (!context) return NULL;
 
 	struct search_session* search_session = NULL;
-	if (!(search_session = calloc(1, sizeof(*search_session)))) return NULL;
+	struct search_query new_query = {0};
+	if (!query.search_string) return NULL;
+	new_query.search_string = query.search_string;
+	new_query.used_parameters = query.used_parameters;
+	if (query.used_parameters & SEARCH_QUERY_PARAMETERS_TAGS)
+	{
+		if (!(new_query.tags.tags = malloc(query.tags.length * sizeof(*query.tags.tags)))) goto error;
+		for (int i = 0; i < query.tags.length; ++i)
+			if (!(new_query.tags.tags[i] = string_alloc(query.tags.tags[i], string_length(query.tags.tags[i])))) goto error;
+	}
+	if (query.used_parameters & SEARCH_QUERY_PARAMETERS_BPM)         new_query.bpm_range = query.bpm_range;
+	if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SORT)        new_query.sort = query.sort;
+	if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SAMPLE_TYPE) new_query.sample_type = query.sample_type;
+	if (query.used_parameters & SEARCH_QUERY_PARAMETERS_KEY)         new_query.key = query.key;
+	if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SCALE)       new_query.scale = query.scale;
 
+	if (!(search_session = calloc(1, sizeof(*search_session)))) goto error;
 	*search_session = (struct search_session){
-		.query = query,
+		.query = new_query,
 		.context = context,
 	};
+
 	return search_session;
+
+error:
+	if (new_query.tags.tags)
+	{
+		for (int i = 0; i < new_query.tags.length; ++i)
+			free(new_query.tags.tags[i]);
+		free(new_query.tags.tags);
+	}
+	if (search_session)
+	{
+		free(search_session->query.search_string);
+		free(search_session);
+	}
+	return NULL;
 }
 
 void search_session_uninit(struct search_session* session)
@@ -149,7 +226,7 @@ bool search_session_fetch_next_page(struct search_session* session)
 	headers = curl_slist_append(headers, "content-type: application/json");
 	if (!headers) goto cleanup;
 
-	search_body_json = build_search_body(session->query.search_string, session->context->max_results_per_page, session->pages_length);
+	search_body_json = build_search_body(session->query, session->context->max_results_per_page, session->pages_length);
 	if (!search_body_json) goto cleanup;
 
 	search_body = cJSON_Print(search_body_json);

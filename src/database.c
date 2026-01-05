@@ -89,19 +89,23 @@ static bool cache_get(struct database* db, char* file, struct buffer* buffer)
 
 struct database* database_init(char* files_path)
 {
+	if (curl_global_init(CURL_GLOBAL_ALL)) return NULL;
+
 	struct database* db = malloc(sizeof(*db));
-	if (!db) return NULL;
+	if (!db) goto error;
 
 	db->files_path = string_alloc(files_path, string_length(files_path));
 	db->cached_files = map_init(sizeof(struct buffer));
-	if (!db->files_path || !db->cached_files)
-	{
-		free(db->files_path);
-		free(db);
-		return NULL;
-	}
+	if (!db->files_path || !db->cached_files) goto error;
 
 	return db;
+
+error:
+	curl_global_cleanup();
+	free(db->files_path);
+	map_uninit(db->cached_files);
+	free(db);
+	return NULL;
 }
 
 void database_uninit(struct database* db)
@@ -121,6 +125,8 @@ void database_uninit(struct database* db)
 	map_uninit(db->cached_files);
 	free(db->files_path);
 	free(db);
+
+	curl_global_cleanup();
 }
 
 bool database_get(struct database* db, char* file, char* url, struct buffer* buffer)
