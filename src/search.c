@@ -32,16 +32,15 @@ static cJSON* build_search_body(struct search_query query, int max_results_per_p
 	{
 		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_TAGS)
 		{
-			// if (!(new_query.tags.tags = malloc(query.tags.length * sizeof(*query.tags.tags)))) goto error;
-			// for (int i = 0; i < query.tags.length; ++i)
-			// 	if (!(new_query.tags.tags[i] = string_alloc(query.tags.tags[i], string_length(query.tags.tags[i])))) goto error;
 			if (!cJSON_AddArrayToObject(variables, "tags")) goto error;
 		}
 		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_BPM)
 		{
 			if (query.bpm_range.min == query.bpm_range.max)
 			{
-				if (!cJSON_AddNumberToObject(variables, "bpm", query.bpm_range.min)) goto error;
+				char text[10];
+				if (snprintf(text, COUNTOF(text), "%d", query.bpm_range.min) < 1) goto error;
+				if (!cJSON_AddStringToObject(variables, "bpm", text)) goto error;
 			}
 			else
 			{
@@ -51,21 +50,45 @@ static cJSON* build_search_body(struct search_query query, int max_results_per_p
 		}
 		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SORT)
 		{
-			if (!cJSON_AddStringToObject(variables, "sort", "popularity")) goto error;
-			if (!cJSON_AddNullToObject(variables, "random_seed")) goto error;
+			if (query.sort == SEARCH_SORT_MOST_POPULAR) { if (!cJSON_AddStringToObject(variables, "sort", "popularity")) goto error; }
+			else if (query.sort == SEARCH_SORT_MOST_RELEVANT) { if (!cJSON_AddStringToObject(variables, "sort", "relevance")) goto error; }
+			else if (query.sort == SEARCH_SORT_MOST_RECENT) { if (!cJSON_AddStringToObject(variables, "sort", "recency")) goto error; }
+			else if (query.sort == SEARCH_SORT_RANDOM)
+			{
+				int64_t seed = 1000000000LL + (int64_t)rand();
+				char seed_text[32];
+				if (snprintf(seed_text, COUNTOF(seed_text), "%" PRIi64, seed) < 1) goto error;
+
+				if (!cJSON_AddStringToObject(variables, "sort", "random")) goto error;
+				if (!cJSON_AddStringToObject(variables, "random_seed", seed_text)) goto error;
+			}
+
 			if (!cJSON_AddStringToObject(variables, "order", "DESC")) goto error;
 		}
 		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SAMPLE_TYPE)
 		{
-			if (!cJSON_AddNullToObject(variables, "asset_category_slug")) goto error;
+			if (query.sample_type == SEARCH_SAMPLE_TYPE_LOOPS)          { if (!cJSON_AddStringToObject(variables, "asset_category_slug", "loop")) goto error; }
+			else if (query.sample_type == SEARCH_SAMPLE_TYPE_ONE_SHOTS) { if (!cJSON_AddStringToObject(variables, "asset_category_slug", "oneshot")) goto error; }
 		}
 		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_KEY)
 		{
-			if (!cJSON_AddNullToObject(variables, "key")) goto error;
+			if (query.key == SEARCH_KEY_C)            { if (!cJSON_AddStringToObject(variables, "key", "c")) goto error; }
+			else if (query.key == SEARCH_KEY_C_SHARP) { if (!cJSON_AddStringToObject(variables, "key", "c#")) goto error; }
+			else if (query.key == SEARCH_KEY_D)       { if (!cJSON_AddStringToObject(variables, "key", "d")) goto error; }
+			else if (query.key == SEARCH_KEY_D_SHARP) { if (!cJSON_AddStringToObject(variables, "key", "d#")) goto error; }
+			else if (query.key == SEARCH_KEY_E)       { if (!cJSON_AddStringToObject(variables, "key", "e")) goto error; }
+			else if (query.key == SEARCH_KEY_F)       { if (!cJSON_AddStringToObject(variables, "key", "f")) goto error; }
+			else if (query.key == SEARCH_KEY_F_SHARP) { if (!cJSON_AddStringToObject(variables, "key", "f#")) goto error; }
+			else if (query.key == SEARCH_KEY_G)       { if (!cJSON_AddStringToObject(variables, "key", "g")) goto error; }
+			else if (query.key == SEARCH_KEY_G_SHARP) { if (!cJSON_AddStringToObject(variables, "key", "g#")) goto error; }
+			else if (query.key == SEARCH_KEY_A)       { if (!cJSON_AddStringToObject(variables, "key", "a")) goto error; }
+			else if (query.key == SEARCH_KEY_A_SHARP) { if (!cJSON_AddStringToObject(variables, "key", "a#")) goto error; }
+			else if (query.key == SEARCH_KEY_B)       { if (!cJSON_AddStringToObject(variables, "key", "b")) goto error; }
 		}
 		if (query.used_parameters & SEARCH_QUERY_PARAMETERS_SCALE)
 		{
-			if (!cJSON_AddNullToObject(variables, "chord_type")) goto error;
+			if (query.scale & SEARCH_SCALE_MAJOR)      { if (!cJSON_AddStringToObject(variables, "chord_type", "major")) goto error; }
+			else if (query.scale & SEARCH_SCALE_MINOR) { if (!cJSON_AddStringToObject(variables, "chord_type", "minor")) goto error; }
 		}
 
 		if (!cJSON_AddNumberToObject(variables, "limit", max_results_per_page)) goto error;
@@ -111,6 +134,8 @@ struct search_context* search_context_init(struct database* db, search_item_upda
 		.item_update_func = item_update_func,
 		.max_results_per_page = max_results_per_page,
 	};
+
+	srand(time(NULL));
 	return search_context;
 
 error:
@@ -245,7 +270,7 @@ bool search_session_fetch_next_page(struct search_session* session)
 	if (!cJSON_IsObject(response_json)) goto cleanup;
 
 	cJSON* errors = cJSON_GetObjectItemCaseSensitive(response_json, "errors");
-	if (!errors)
+	if (errors)
 	{
 		char* json = cJSON_Print(response_json);
 		printf("%s", json);
