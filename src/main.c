@@ -19,7 +19,11 @@
 #include "common.h"
 #include "database.h"
 #include "drag_drop.h" 
-#include "file_utils.h" 
+#include "file_utils.h"
+
+#if defined(_WIN32) // no console
+#pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
+#endif
 
 #define DRAW_DEBUG 0
 
