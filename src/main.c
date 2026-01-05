@@ -393,10 +393,12 @@ int main(void)
 		glfwPollEvents();
 		if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 		{
-			printf("mini\n");
+			ma_device_stop(&device);
 			ImGui_ImplGlfw_Sleep(10);
 			continue;
 		}
+		if (glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0)
+			ma_device_stop(&device);
 
 		// Start the Dear ImGui frame
 		ImGui_ImplOpenGL3_NewFrame();
