@@ -271,7 +271,10 @@ bool search_session_fetch_next_page(struct search_session* session)
 	list_request = curl_easy_init();
 	if (!list_request) goto cleanup;
 
+	headers = curl_slist_append(headers, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0");
+	headers = curl_slist_append(headers, "Accept: application/graphql-response+json,application/json;q=0.9");
 	headers = curl_slist_append(headers, "content-type: application/json");
+	headers = curl_slist_append(headers, "Origin: https://splice.com");
 	if (!headers) goto cleanup;
 
 	search_body_json = build_search_body(session->query, session->context->max_results_per_page, session->pages_length);
